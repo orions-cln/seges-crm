@@ -384,7 +384,7 @@ const CRM = (function () {
   async function lista(cont) {
     cont.innerHTML =
       '<div class="encabezado"><div><p class="eyebrow">Atención al cliente</p><h1>Casos</h1></div>' +
-      '<button class="btn" id="btnNuevoCaso" type="button">+ Nuevo caso</button></div>' +
+      '<div class="chips"><button class="btn sec" id="btnRevisar" type="button">Revisar correo</button><button class="btn" id="btnNuevoCaso" type="button">+ Nuevo caso</button></div></div>' +
       '<div class="stats" id="stats"></div>' +
       '<div class="filtros">' +
         '<input id="qCaso" class="buscador" type="search" placeholder="Buscar folio, cliente, asunto o pedido" value="' + esc(filtro.q) + '">' +
@@ -393,7 +393,7 @@ const CRM = (function () {
       '</div>' +
       '<div id="listaCasos" class="lista"><p class="cargando">Cargando casos…</p></div>';
     $('#fEstado', cont).value = filtro.estado;
-    $('#btnNuevoCaso', cont).onclick = function () { formularioNuevo(); };
+    $('#btnNuevoCaso', cont).onclick = function () { formularioNuevo(); }; $('#btnRevisar', cont).onclick = async function () { const b = this; b.disabled = true; b.textContent = 'Revisando…'; try { const r = await CRM.llamar('correoRevisarAhora'); CRM.aviso(r.ocupado ? 'Ya se está revisando el correo; intenta en un minuto.' : (r.nuevos || r.respuestas ? 'Correo: ' + r.nuevos + ' caso(s) nuevo(s), ' + r.respuestas + ' respuesta(s).' : 'Sin correos nuevos.')); cargar(); } catch (e) { CRM.aviso(e.message, 'mal'); } b.disabled = false; b.textContent = 'Revisar correo'; };
     $('#fEstado', cont).onchange = function (e) { filtro.estado = e.target.value; filtro.semaforo = ''; cargar(); };
     const q = $('#qCaso', cont);
     q.oninput = function () { clearTimeout(temporizador); temporizador = setTimeout(function () { filtro.q = q.value; cargar(); }, 300); };
