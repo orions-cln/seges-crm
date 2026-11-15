@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-ROp4KqmShYGpeOMbJo5QBauTgb/pFo/J25o+RxEaZLg='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://script.google.com https://script.googleusercontent.com; img-src data:; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#060C22">
+  <title>SEGES – Crear o cambiar PIN</title>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Unbounded:wght@700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 18px;
+           font-family: Manrope, system-ui, sans-serif; color: #D1E4FA; background: #060C22;
+           background-image: radial-gradient(ellipse at 50% -10%, rgba(59,111,232,.22), transparent 60%); }
+    .caja { width: 100%; max-width: 400px; padding: 30px 26px; border-radius: 16px; background: rgba(8,14,38,.92);
+            box-shadow: inset 0 1px 1px rgba(216,236,248,.2), 0 24px 60px rgba(0,0,0,.55), inset 0 0 0 1px rgba(186,215,247,.12); }
+    .marca { font-family: Unbounded, sans-serif; font-weight: 700; font-size: 30px; text-align: center; color: #E8A33D; }
+    .eyebrow { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #9DA7BA; text-align: center; margin: 6px 0 22px; }
+    label { display: block; font-size: 12px; font-weight: 600; color: #C7D3EA; margin-bottom: 14px; }
+    input { width: 100%; margin-top: 6px; font: inherit; font-size: 15px; color: #fff; padding: 11px 12px; border: 0; border-radius: 8px;
+            background: rgba(199,211,234,.06); box-shadow: inset 0 0 0 1px rgba(186,215,247,.12); }
+    input:focus { outline: none; box-shadow: inset 0 0 0 1px rgba(232,163,61,.7), 0 0 0 4px rgba(232,163,61,.12); }
+    button, .btn { display: block; width: 100%; text-align: center; border: 0; border-radius: 999px; padding: 12px; font: inherit; font-weight: 700;
+             background: #E8A33D; color: #1A1204; cursor: pointer; text-decoration: none; margin-top: 4px; }
+    button:disabled { opacity: .5; }
+    form + form { margin-top: 22px; padding-top: 18px; box-shadow: inset 0 1px 0 rgba(186,215,247,.12); }
+    .ayuda { font-size: 13px; color: #9DA7BA; margin: 0 0 14px; }
+    .error { color: #FFB4A8; font-weight: 600; } .ok { color: #B7F2DA; }
+    #msg { font-size: 14px; margin: 16px 0 0; min-height: 1em; }
+    .oculto { display: none !important; }
+    a.link { display: block; text-align: center; margin-top: 18px; color: #C7D3EA; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <main class="caja">
+    <div class="marca">SEGES</div>
+    <p class="eyebrow">Crear o cambiar PIN</p>
+    <form id="f1">
+      <p class="ayuda">Escribe tu correo registrado. Te enviaremos un código de 6 dígitos.</p>
+      <label>Correo<input id="correo" type="email" autocomplete="username" required></label>
+      <button type="submit">Enviar código</button>
+    </form>
+    <form id="f2" class="oculto">
+      <label>Código del correo<input id="codigo" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required></label>
+      <label>PIN nuevo (6 a 10 dígitos)<input id="pin" type="password" inputmode="numeric" maxlength="10" autocomplete="new-password" required></label>
+      <label>Repite el PIN<input id="pin2" type="password" inputmode="numeric" maxlength="10" autocomplete="new-password" required></label>
+      <button type="submit">Guardar PIN</button>
+    </form>
+    <p id="msg"></p>
+    <a id="volver" class="btn oculto" href="./">Ir a entrar</a>
+    <a class="link" href="./">← Volver al inicio de sesión</a>
+  </main>
+  <script>
+(function () {
+  var API_URL = 'https://script.google.com/macros/s/AKfycbwcXMGlNCYP9ahk_L3_0aU8GSVcy8Lpe43Kd5cAkALCsUrhYs1sp3LG01v-LdzIn_sQJQ/exec';
+  var $ = function (s) { return document.querySelector(s); };
+  async function api(fn) {
+    var args = Array.prototype.slice.call(arguments, 1), r, j;
+    try { r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ fn: fn, args: args }), credentials: 'omit', cache: 'no-store' }); }
+    catch (e) { throw new Error('Sin conexión con el servidor.'); }
+    try { j = await r.json(); } catch (e) { throw new Error('Respuesta inesperada del servidor.'); }
+    if (!j || !j.ok) throw new Error((j && j.error) || 'Error.');
+    return j.data;
+  }
+  function msg(t, mal) { var m = $('#msg'); m.textContent = t; m.className = mal ? 'error' : 'ok'; }
+  $('#f1').onsubmit = async function (ev) {
+    ev.preventDefault();
+    var b = $('#f1 button'); b.disabled = true; msg('');
+    try {
+      var r = await api('pinSolicitarCodigo', $('#correo').value);
+      msg(r.mensaje);
+      $('#f2').classList.remove('oculto');
+      $('#codigo').focus();
+    } catch (e) { msg(e.message, true); }
+    finally { b.disabled = false; }
+  };
+  $('#f2').onsubmit = async function (ev) {
+    ev.preventDefault();
+    if ($('#pin').value !== $('#pin2').value) { msg('Los dos PIN no coinciden.', true); return; }
+    var b = $('#f2 button'); b.disabled = true; msg('');
+    try {
+      var r = await api('pinConfirmar', $('#correo').value, $('#codigo').value, $('#pin').value);
+      msg(r.mensaje);
+      $('#f2').reset(); $('#f2').classList.add('oculto');
+      $('#volver').classList.remove('oculto');
+    } catch (e) { msg(e.message, true); }
+    finally { b.disabled = false; }
+  };
+})();
+</script>
+</body>
+</html>
