@@ -200,3 +200,6 @@ tr.clic { cursor: pointer; } tr.clic:hover td { background: var(--sup-2); }
   .panel, .ficha { padding: 16px; }
   .marca span { display: none; }
 }
+
+/* Vista previa del correo */
+.previa-correo { width: 100%; height: 560px; margin-top: 8px; border: 1px solid var(--borde-2); border-radius: var(--r); background: #F4EFE6; }
