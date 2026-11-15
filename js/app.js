@@ -484,6 +484,7 @@ const CRM = (function () {
           '<div class="acciones">' +
             '<button class="btn" id="btnResp" type="button">Respuesta rápida</button>' +
             (wa ? '<a class="btn sec" id="btnWa" href="' + esc(wa) + '" target="seges_whatsapp">Abrir WhatsApp</a>' : '') +
+            '<button class="btn sec" id="btnCorreo" type="button">Enviar correo</button>' +
             '<button class="btn sec" id="btnEditar" type="button">Editar</button>' +
             (CRM.esAdmin() ? '<button class="btn peligro" id="btnBorrar" type="button">Borrar</button>' : '') +
           '</div>' +
@@ -508,6 +509,7 @@ const CRM = (function () {
     $('#irCliente', cont).onclick = function () { CRM.ir('clientes', { id: t.idCliente }); };
     $('#btnEditar', cont).onclick = function () { formularioEditar(t); };
     $('#btnResp', cont).onclick = function () { modalRespuesta(t); };
+    $('#btnCorreo', cont).onclick = function () { modalCorreo(t, ''); };
     if ($('#btnWa', cont)) $('#btnWa', cont).onclick = function () {
       CRM.llamar('ticketNota', t.folio, 'WhatsApp', 'Se abrió el chat de WhatsApp con el cliente.').catch(function () {});
     };
@@ -557,10 +559,11 @@ const CRM = (function () {
       '<label>Mensaje<textarea id="rTexto" rows="6"></textarea></label>' +
       '<div class="acciones">' +
         (t.telefono ? '<a class="btn" id="rWa" target="seges_whatsapp" href="#">Enviar por WhatsApp</a>' : '') +
+        '<button class="btn sec" id="rCorreo" type="button">Enviar por correo</button>' +
         '<button class="btn sec" id="rCopiar" type="button">Copiar</button>' +
         '<button class="btn sec" id="rCerrar" type="button">Cerrar</button>' +
       '</div>' +
-      '<p class="ayuda">Al enviar por WhatsApp el mensaje queda registrado en la línea de tiempo del caso.</p>';
+      '<p class="ayuda">Lo que envíes por WhatsApp o correo queda registrado en la línea de tiempo del caso.</p>';
     const area = $('#rTexto', m), wa = $('#rWa', m);
     const actualizar = function () { if (wa) wa.href = CRM.waLink(t.telefono, area.value); };
     const elegir = function (i) {
@@ -585,7 +588,77 @@ const CRM = (function () {
       if (!ok && navigator.clipboard) navigator.clipboard.writeText(area.value).then(function () { CRM.aviso('Mensaje copiado.'); });
       else CRM.aviso(ok ? 'Mensaje copiado.' : 'Selecciona el texto y cópialo.');
     };
+    $('#rCorreo', m).onclick = function () { modalCorreo(t, area.value); };
     $('#rCerrar', m).onclick = CRM.cerrarModal;
+  }
+
+  /* ───────── correo al cliente (diseño SEGES) ───────── */
+
+  async function modalCorreo(t, textoInicial) {
+    if (!t.correo) {
+      CRM.modal('<p class="eyebrow">Correo · ' + esc(t.folio) + '</p><h2>Falta el correo del cliente</h2>' +
+        '<p>' + esc(t.cliente) + ' no tiene correo registrado. Agrégalo en su ficha y vuelve a intentar.</p>' +
+        '<div class="acciones"><button class="btn" id="mIr" type="button">Ir a la ficha</button><button class="btn sec" id="mNo" type="button">Cerrar</button></div>');
+      $('#mIr').onclick = function () { CRM.cerrarModal(); CRM.ir('clientes', { id: t.idCliente }); };
+      $('#mNo').onclick = CRM.cerrarModal;
+      return;
+    }
+    const m = CRM.modal('<p class="eyebrow">Correo · ' + esc(t.folio) + '</p><p class="cargando">Cargando plantillas…</p>');
+    let lista = [];
+    try { lista = (await respuestas()).filter(function (r) { return r.canal === 'Todos' || r.canal === 'Correo'; }); } catch (e) {}
+    m.innerHTML =
+      '<p class="eyebrow">Correo · ' + esc(t.folio) + '</p><h2>Para ' + esc(t.cliente) + '</h2>' +
+      '<p class="ayuda">' + esc(t.correo) + ' · sale con el diseño de SEGES, firmado por ti; si responde, llega a ' + 'segesmx+atencion@gmail.com.</p>' +
+      (lista.length ? '<div class="plantillas">' + lista.map(function (r, i) {
+        return '<button type="button" class="pill-opcion" data-i="' + i + '">' + esc(r.nombre) + '</button>';
+      }).join('') + '</div>' : '') +
+      '<label>Asunto<input id="mAsunto" maxlength="150" value="' + esc(t.asunto) + '"></label>' +
+      '<label>Mensaje<textarea id="mTexto" rows="8" placeholder="Escribe tu respuesta. Deja una línea en blanco para separar párrafos. El saludo «Hola ' + esc(String(t.cliente).split(' ')[0]) + ',» y la firma se agregan solos."></textarea></label>' +
+      '<p id="mErr" class="error"></p>' +
+      '<div class="acciones">' +
+        '<button class="btn sec" id="mVer" type="button">Vista previa</button>' +
+        '<button class="btn" id="mEnviar" type="button">Enviar correo</button>' +
+        '<button class="btn sec" id="mCerrar" type="button">Cancelar</button>' +
+      '</div><div id="mPrevia"></div>';
+    const area = $('#mTexto', m), asunto = $('#mAsunto', m), err = $('#mErr', m);
+    area.value = quitarSaludo(textoInicial || '');
+    m.querySelectorAll('.pill-opcion').forEach(function (b) {
+      b.onclick = function () {
+        m.querySelectorAll('.pill-opcion').forEach(function (x) { x.classList.toggle('activo', x === b); });
+        area.value = quitarSaludo(rellenar(lista[Number(b.dataset.i)].texto, t));
+      };
+    });
+    $('#mCerrar', m).onclick = CRM.cerrarModal;
+    $('#mVer', m).onclick = async function () {
+      err.textContent = ''; this.disabled = true;
+      try {
+        const r = await CRM.llamar('correoVistaPrevia', t.folio, asunto.value, area.value);
+        const box = $('#mPrevia', m);
+        box.innerHTML = '<p class="ayuda">Asunto: <b>' + esc(r.asunto) + '</b> · te quedan ' + esc(r.quedan) + ' correos hoy</p>';
+        const f = document.createElement('iframe');
+        f.className = 'previa-correo'; f.setAttribute('sandbox', ''); f.setAttribute('title', 'Vista previa');
+        f.srcdoc = r.html; box.appendChild(f);
+        f.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (e) { err.textContent = e.message; }
+      this.disabled = false;
+    };
+    $('#mEnviar', m).onclick = async function () {
+      err.textContent = '';
+      if (!area.value.trim()) { err.textContent = 'Escribe el mensaje.'; return; }
+      const b = this; b.disabled = true; b.textContent = 'Enviando…';
+      try {
+        const r = await CRM.llamar('correoEnviar', t.folio, asunto.value, area.value);
+        CRM.cerrarModal();
+        CRM.aviso('Correo enviado a ' + r.para + '.');
+        CRM.ir('tickets', { folio: t.folio });
+      } catch (e) { err.textContent = e.message; b.disabled = false; b.textContent = 'Enviar correo'; }
+    };
+  }
+
+  /** La plantilla del correo ya saluda ("Hola Nombre,"); quita un saludo repetido al inicio del texto. */
+  function quitarSaludo(s) {
+    const r = String(s || '').replace(/^\s*(hola|buen[oa]s? (d[ií]as|tardes|noches))\b[^,!\n]{0,40}[,!]\s*/i, '').trim();
+    return r.charAt(0).toUpperCase() + r.slice(1);
   }
 
   /* ───────── selector de tipificación (Área → Tipificación) ───────── */
