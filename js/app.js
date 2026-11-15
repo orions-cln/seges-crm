@@ -1,7 +1,8 @@
-/* SEGES – Mini-CRM · Módulo 1: estructura de la app (sesión, navegación, utilidades). */
+/* SEGES – CRM v6 · Núcleo: sesión, navegación, ventanas, utilidades. */
 const CRM = (function () {
-  const st = { token: null, usuario: null, cfg: null, vistas: [], actual: null };
+  const st = { token: null, usuario: null, cfg: null, vistas: [], actual: null, params: {} };
   const $ = function (s, el) { return (el || document).querySelector(s); };
+  const $$ = function (s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)); };
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -16,7 +17,6 @@ const CRM = (function () {
   function leerToken() { try { return sessionStorage.getItem('crmToken'); } catch (e) { return null; } }
 
   const API_URL = 'https://script.google.com/macros/s/AKfycbwcXMGlNCYP9ahk_L3_0aU8GSVcy8Lpe43Kd5cAkALCsUrhYs1sp3LG01v-LdzIn_sQJQ/exec';
-  /** Llama al servidor (Apps Script) sin cookies; la sesión viaja como token en el cuerpo. */
   async function llamarDirecto(fn) {
     const args = Array.prototype.slice.call(arguments, 1);
     let r, j;
@@ -28,8 +28,6 @@ const CRM = (function () {
     if (!j || !j.ok) throw new Error((j && j.error) || 'Error desconocido.');
     return j.data;
   }
-
-  /** Llama a una función del servidor pasando el token de sesión. */
   async function llamar(fn) {
     const args = Array.prototype.slice.call(arguments, 1);
     try {
@@ -45,121 +43,232 @@ const CRM = (function () {
     }
   }
 
+  /* ───────── avisos y ventanas ───────── */
   let temporizadorAviso;
   function aviso(msg, tipo) {
     const el = $('#aviso');
     el.textContent = msg;
     el.className = 'aviso ' + (tipo || '');
     clearTimeout(temporizadorAviso);
-    temporizadorAviso = setTimeout(function () { el.classList.add('oculto'); }, 4000);
+    temporizadorAviso = setTimeout(function () { el.classList.add('oculto'); }, tipo === 'mal' ? 6000 : 4000);
   }
 
-  function modal(html) {
+  /** Animación de carga: 3 estrellas en carrusel. */
+  function cargando(txt, chico) {
+    return '<div class="cargando' + (chico ? ' chico' : '') + '"><div class="estrellas" aria-hidden="true"><i>★</i><i>★</i><i>★</i></div>' +
+      (txt ? '<span>' + esc(txt) + '</span>' : '') + '</div>';
+  }
+
+  /**
+   * Abre la ventana. opciones: { ancha, alCancelar } — si hay alCancelar, el fondo y Esc lo llaman en vez de cerrar directo.
+   */
+  function modal(html, opciones) {
+    opciones = opciones || {};
+    st.alCancelarModal = opciones.alCancelar || null;
+    $('#modalCaja').className = 'modal-caja' + (opciones.ancha ? ' ancha' : '');
     $('#modalCuerpo').innerHTML = html;
     $('#modal').classList.remove('oculto');
     return $('#modalCuerpo');
   }
-  function cerrarModal() { $('#modal').classList.add('oculto'); $('#modalCuerpo').innerHTML = ''; }
+  function cerrarModal() { st.alCancelarModal = null; $('#modal').classList.add('oculto'); $('#modalCuerpo').innerHTML = ''; }
+  function modalAbierto() { return !$('#modal').classList.contains('oculto'); }
 
-  /** Ventana de confirmación propia. Devuelve una promesa true/false. */
-  function confirmar(texto, etiquetaSi) {
+  /** Confirmación en una capa propia (no borra el formulario abierto). Devuelve true/false. */
+  let resolverConfirma = null;
+  function confirmar(texto, etiquetaSi, opciones) {
+    opciones = opciones || {};
     return new Promise(function (ok) {
-      const c = modal('<p>' + esc(texto) + '</p><div class="acciones">' +
-        '<button class="btn peligro" id="cfSi">' + esc(etiquetaSi || 'Sí') + '</button>' +
-        '<button class="btn sec" id="cfNo">Cancelar</button></div>');
-      $('#cfSi', c).onclick = function () { cerrarModal(); ok(true); };
-      $('#cfNo', c).onclick = function () { cerrarModal(); ok(false); };
+      if (resolverConfirma) resolverConfirma(false);
+      resolverConfirma = ok;
+      const c = $('#confirmaCuerpo');
+      c.innerHTML = (opciones.titulo ? '<h2>' + esc(opciones.titulo) + '</h2>' : '') + '<p>' + esc(texto) + '</p>' +
+        (opciones.casilla ? '<label class="check" style="margin-top:14px"><input type="checkbox" id="cfCasilla"> ' + esc(opciones.casilla) + '</label>' : '') +
+        '<div class="acciones">' +
+        '<button class="btn ' + (opciones.peligro === false ? '' : 'peligro lleno') + '" id="cfSi" type="button">' + esc(etiquetaSi || 'Sí') + '</button>' +
+        '<button class="btn sec" id="cfNo" type="button">' + esc(opciones.no || 'No') + '</button></div>';
+      $('#confirma').classList.remove('oculto');
+      const si = $('#cfSi', c);
+      if (opciones.casilla) { si.disabled = true; $('#cfCasilla', c).onchange = function () { si.disabled = !this.checked; }; }
+      const fin = function (v) { $('#confirma').classList.add('oculto'); c.innerHTML = ''; resolverConfirma = null; ok(v); };
+      si.onclick = function () { fin(true); };
+      $('#cfNo', c).onclick = function () { fin(false); };
+      (opciones.casilla ? $('#cfNo', c) : si).focus();
     });
   }
+  function cancelarConfirma() { if (resolverConfirma) { $('#confirma').classList.add('oculto'); $('#confirmaCuerpo').innerHTML = ''; const r = resolverConfirma; resolverConfirma = null; r(false); } }
 
+  /** Cancelar un formulario: pregunta dos veces si hay algo escrito. */
+  async function descartar(form, inicial) {
+    const sucio = form && inicial !== undefined && firmaForm(form) !== inicial;
+    if (sucio) {
+      if (!(await confirmar('¿Cancelar? Lo que escribiste no se guardará.', 'Sí, cancelar', { no: 'Seguir editando' }))) return false;
+      if (!(await confirmar('Confírmalo otra vez: se descartan los cambios.', 'Descartar', { no: 'Volver', titulo: '¿Seguro?' }))) return false;
+    }
+    cerrarModal();
+    return true;
+  }
+  function firmaForm(form) {
+    const o = [];
+    $$('input, select, textarea', form).forEach(function (el) { o.push(el.name + '=' + (el.type === 'checkbox' ? el.checked : el.value)); });
+    return o.join('&');
+  }
+
+  /** Eliminar: pregunta dos veces, la segunda con casilla de confirmación. */
+  async function confirmarBorrado(que) {
+    if (!(await confirmar('¿Eliminar ' + que + '?', 'Continuar', { titulo: 'Eliminar', no: 'Cancelar' }))) return false;
+    return confirmar('Esta acción no se puede deshacer.', 'Eliminar definitivamente',
+      { titulo: 'Segunda confirmación', casilla: 'Entiendo que ' + que + ' se borra para siempre.', no: 'Cancelar' });
+  }
+
+  /* ───────── navegación ───────── */
   function registrarVista(id, def) { st.vistas.push(Object.assign({ id: id, orden: 50 }, def)); }
   function hayVista(id) { return st.vistas.some(function (v) { return v.id === id; }); }
   function esAdmin() { return !!(st.usuario && st.usuario.rol === 'admin'); }
+  function esJefe() { return !!(st.usuario && (st.usuario.rol === 'admin' || st.usuario.rol === 'supervisor')); }
   function visibles() {
-    return st.vistas.filter(function (v) { return !v.soloAdmin || esAdmin(); })
+    return st.vistas.filter(function (v) { return !v.soloJefe || esJefe(); })
                     .sort(function (a, b) { return a.orden - b.orden; });
   }
-
   function pintarNav() {
     const nav = $('#nav');
-    nav.innerHTML = '';
-    visibles().forEach(function (v) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = v.titulo;
-      b.dataset.vista = v.id;
-      b.onclick = function () { ir(v.id); };
-      nav.appendChild(b);
-    });
+    nav.innerHTML = visibles().map(function (v) {
+      return '<button type="button" data-vista="' + esc(v.id) + '" title="' + esc(v.titulo) + '"><span class="ico">' + esc(v.icono || v.titulo[0].toLowerCase()) +
+        '</span><span>' + esc(v.titulo) + '</span></button>';
+    }).join('') + '<div class="pie">SEGES CRM · v6</div>';
+    $$('button', nav).forEach(function (b) { b.onclick = function () { ir(b.dataset.vista); }; });
   }
 
-  async function ir(id, params) {
+  function hashDe(id, params) {
+    const p = params || {};
+    const sub = p.folio || p.id || '';
+    return '#' + id + (sub ? '/' + encodeURIComponent(sub) : '');
+  }
+  function leerHash() {
+    const h = decodeURIComponent((location.hash || '').slice(1));
+    if (!h) return null;
+    const i = h.indexOf('/');
+    const id = i >= 0 ? h.slice(0, i) : h, sub = i >= 0 ? h.slice(i + 1) : '';
+    const p = {};
+    if (sub) { if (id === 'folios') p.folio = sub; else p.id = sub; }
+    return { id: id, params: p };
+  }
+
+  let turno = 0;
+  async function ir(id, params, sinHistorial) {
     const lista = visibles();
     const v = lista.find(function (x) { return x.id === id; }) || lista[0];
     if (!v) { $('#vista').innerHTML = '<p class="vacio">No hay módulos instalados.</p>'; return; }
-    st.actual = v.id;
-    document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('activo', b.dataset.vista === v.id); });
+    params = params || {};
+    st.actual = v.id; st.params = params;
+    if (!sinHistorial) {
+      const h = hashDe(v.id, params);
+      if (location.hash !== h) history.pushState(null, '', h);
+    }
+    $$('#nav button').forEach(function (b) { b.classList.toggle('activo', b.dataset.vista === v.id); });
     const cont = $('#vista');
-    cont.innerHTML = '<p class="cargando">Cargando…</p>';
+    const mio = ++turno;
+    cont.innerHTML = cargando('Cargando…');
     window.scrollTo(0, 0);
-    try { await v.render(cont, params || {}); }
-    catch (e) { cont.innerHTML = '<p class="error">' + esc(e.message) + '</p>'; }
+    try { await v.render(cont, params, function () { return mio === turno; }); }
+    catch (e) { if (mio === turno) cont.innerHTML = '<div class="panel"><p class="error">' + esc(e.message) + '</p></div>'; }
   }
+  function recargar() { return ir(st.actual, st.params, true); }
 
   function mostrarLogin() {
     document.body.classList.remove('dentro');
     $('#login').classList.remove('oculto');
+    if (st.alSalir) st.alSalir();
   }
 
   function entrarListo(r) {
     guardarToken(r.token);
     st.usuario = r.usuario;
     st.cfg = r.cfg;
-    $('#usrNombre').textContent = r.usuario.nombre + (r.usuario.rol === 'admin' ? ' · admin' : '');
+    $('#usrNombre').textContent = r.usuario.nombre;
+    $('#usrRol').textContent = r.usuario.rol || 'agente';
+    $('#usrInicial').textContent = String(r.usuario.nombre || '?').trim().charAt(0).toUpperCase();
     $('#login').classList.add('oculto');
     document.body.classList.add('dentro');
     pintarNav();
-    const v = visibles()[0];
-    ir(v ? v.id : null);
+    const h = leerHash();
+    if (h && hayVista(h.id)) ir(h.id, h.params, true);
+    else ir(visibles()[0].id);
+    if (st.alEntrar) st.alEntrar();
   }
 
-  /* Formato de fechas en hora de Culiacán */
+  /* ───────── formatos ───────── */
   function fecha(isoTxt, conHora) {
     if (!isoTxt) return '';
     const d = new Date(isoTxt);
     if (isNaN(d)) return '';
-    const op = { timeZone: (st.cfg && st.cfg.zona) || 'America/Mazatlan', day: '2-digit', month: 'short', year: 'numeric' };
+    const op = { timeZone: zona(), day: '2-digit', month: 'short', year: 'numeric' };
     if (conHora !== false) { op.hour = '2-digit'; op.minute = '2-digit'; }
     return d.toLocaleString('es-MX', op);
   }
+  function zona() { return (st.cfg && st.cfg.zona) || 'America/Mazatlan'; }
+  function diaClave(isoTxt) {
+    const d = new Date(isoTxt);
+    return isNaN(d) ? '' : d.toLocaleDateString('en-CA', { timeZone: zona() });
+  }
+  function hace(isoTxt) {
+    const ms = Date.now() - new Date(isoTxt).getTime();
+    if (isNaN(ms)) return '';
+    const m = Math.round(ms / 60000);
+    if (m < 1) return 'ahora';
+    if (m < 60) return 'hace ' + m + ' min';
+    const h = Math.round(m / 60);
+    if (h < 24) return 'hace ' + h + ' h';
+    const d = Math.round(h / 24);
+    return 'hace ' + d + ' d';
+  }
 
-  /** Enlace directo al chat: en celular abre la app; en computadora, WhatsApp Web. */
   function esCelular() { return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent); }
   function waLink(tel, texto) {
     const d = String(tel || '').replace(/\D/g, '').slice(-10);
     if (d.length !== 10) return '';
     const lada = (st.cfg && st.cfg.lada) || '52';
     const txt = texto ? '&text=' + encodeURIComponent(texto) : '';
-    return esCelular()
-      ? 'whatsapp://send?phone=' + lada + d + txt
-      : 'https://web.whatsapp.com/send?phone=' + lada + d + txt;
+    return esCelular() ? 'whatsapp://send?phone=' + lada + d + txt : 'https://web.whatsapp.com/send?phone=' + lada + d + txt;
   }
 
   function datosForm(form) {
     const o = {};
-    new FormData(form).forEach(function (v, k) { o[k] = v; });
+    $$('input[name], select[name], textarea[name]', form).forEach(function (el) {
+      if (el.type === 'checkbox') { if (el.checked) o[el.name] = 'on'; return; }
+      o[el.name] = el.value;
+    });
     return o;
   }
-
-  /** "Área / Tipificación" → "Tipificación" (para mostrar). */
-  function tipNombre(m) { m = String(m || ''); const i = m.indexOf(' / '); return i >= 0 ? m.slice(i + 3) : m; }
-
-  function opciones(lista, actual) {
-    return (lista || []).map(function (x) {
+  /** "Área / Causa / Subcausa" → "Subcausa". */
+  function tipNombre(m) { m = String(m || ''); const i = m.lastIndexOf(' / '); return i >= 0 ? m.slice(i + 3) : m; }
+  function opciones(lista, actual, vacia) {
+    return (vacia !== undefined ? '<option value="">' + esc(vacia) + '</option>' : '') + (lista || []).map(function (x) {
       return '<option' + (x === actual ? ' selected' : '') + '>' + esc(x) + '</option>';
     }).join('');
   }
+  function chipPrioridad(p) {
+    p = p || 'Normal';
+    return '<span class="chip p-' + esc(p.toLowerCase()) + '">' + esc(p) + '</span>';
+  }
+  const COLOR_ESTADO = ['var(--azul)', 'var(--ambar)', 'var(--violeta)', 'var(--turq)', 'var(--verde)', 'var(--ayuda)'];
+  function colorEstado(e) {
+    const i = ((st.cfg && st.cfg.estados) || []).indexOf(e);
+    return COLOR_ESTADO[i >= 0 ? i % COLOR_ESTADO.length : 0];
+  }
+  function esFinal(e) {
+    const es = (st.cfg && st.cfg.estados) || [];
+    return es.slice(es.length > 2 ? -2 : -1).indexOf(e) >= 0;
+  }
+  function chipEstado(e) {
+    return '<span class="chip" style="border-color:' + colorEstado(e) + ';color:' + colorEstado(e) + '">' + esc(e) + '</span>';
+  }
+  function dato(etiqueta, valor, html, faltaSiVacio) {
+    const vacio = !valor && valor !== 0;
+    return '<div class="dato"><b>' + esc(etiqueta) + '</b><span' + (vacio && faltaSiVacio ? ' class="falta"' : '') + '>' +
+      (vacio ? (faltaSiVacio ? 'Falta' : '—') : (html ? valor : esc(valor))) + '</span></div>';
+  }
 
+  /* ───────── arranque ───────── */
   async function arrancar() {
     $('#formLogin').onsubmit = async function (ev) {
       ev.preventDefault();
@@ -175,11 +284,28 @@ const CRM = (function () {
       } finally { btn.disabled = false; }
     };
     $('#btnSalir').onclick = async function () {
+      if (!(await confirmar('¿Cerrar sesión?', 'Salir', { peligro: false, no: 'Cancelar' }))) return;
       try { await llamarDirecto('salir', st.token); } catch (e) {}
       guardarToken(null); st.usuario = null; mostrarLogin();
     };
-    $('#modal').onclick = function (ev) { if (ev.target.id === 'modal') cerrarModal(); };
+    $('#irInicio').onclick = function () { ir(visibles()[0].id); };
+    $('#modal').addEventListener('mousedown', function (ev) {
+      if (ev.target.id !== 'modal') return;
+      if (st.alCancelarModal) st.alCancelarModal(); else cerrarModal();
+    });
+    $('#confirma').addEventListener('mousedown', function (ev) { if (ev.target.id === 'confirma') cancelarConfirma(); });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Escape') return;
+      if (resolverConfirma) { cancelarConfirma(); return; }
+      if (modalAbierto()) { if (st.alCancelarModal) st.alCancelarModal(); else cerrarModal(); }
+    });
+    window.addEventListener('popstate', function () {
+      if (!st.usuario) return;
+      const h = leerHash();
+      if (h && hayVista(h.id)) ir(h.id, h.params, true);
+    });
 
+    $('#vista').innerHTML = '';
     try {
       const r = await llamarDirecto('iniciar', leerToken());
       r.login ? mostrarLogin() : entrarListo(r);
@@ -189,396 +315,890 @@ const CRM = (function () {
     }
   }
 
-  return { st: st, $: $, esc: esc, llamar: llamar, aviso: aviso, modal: modal, cerrarModal: cerrarModal,
-           confirmar: confirmar, registrarVista: registrarVista, hayVista: hayVista, ir: ir, esAdmin: esAdmin,
-           fecha: fecha, waLink: waLink, datosForm: datosForm, opciones: opciones, tipNombre: tipNombre, arrancar: arrancar };
+  return { st: st, $: $, $$: $$, esc: esc, llamar: llamar, aviso: aviso, cargando: cargando, modal: modal, cerrarModal: cerrarModal,
+           confirmar: confirmar, descartar: descartar, firmaForm: firmaForm, confirmarBorrado: confirmarBorrado,
+           registrarVista: registrarVista, hayVista: hayVista, ir: ir, recargar: recargar, esAdmin: esAdmin, esJefe: esJefe,
+           fecha: fecha, diaClave: diaClave, hace: hace, waLink: waLink, datosForm: datosForm, opciones: opciones, tipNombre: tipNombre,
+           chipPrioridad: chipPrioridad, chipEstado: chipEstado, colorEstado: colorEstado, esFinal: esFinal, dato: dato, arrancar: arrancar };
 })();
-/* SEGES – Mini-CRM · Módulo 1: vista Clientes. */
+
+/* ═════════════ Buscador general y notificaciones (cabecera) ═════════════ */
 (function () {
   const $ = CRM.$, esc = CRM.esc;
-  let temporizador;
+  let tBusca, tNotif, ultimas = [];
 
-  CRM.registrarVista('clientes', {
-    titulo: 'Clientes',
-    orden: 30,
-    render: async function (cont, p) {
-      if (p.id) return detalle(cont, p.id);
-      cont.innerHTML =
-        '<div class="encabezado"><div><p class="eyebrow">Directorio</p><h1>Clientes</h1></div><button class="btn" id="btnNuevo" type="button">+ Nuevo cliente</button></div>' +
-        '<input id="q" class="buscador" type="search" placeholder="Buscar por nombre, teléfono o correo" value="' + esc(p.q || '') + '">' +
-        '<div id="lista" class="lista"></div>';
-      $('#btnNuevo', cont).onclick = function () { formulario(null); };
-      const q = $('#q', cont);
-      q.oninput = function () { clearTimeout(temporizador); temporizador = setTimeout(function () { buscar(q.value); }, 300); };
-      await buscar(q.value);
-    }
-  });
-
+  function cerrarBusca() { $('#buscaRes').classList.add('oculto'); }
   async function buscar(q) {
-    const lista = $('#lista');
-    if (!lista) return;
-    lista.innerHTML = '<p class="cargando">Buscando…</p>';
+    const caja = $('#buscaRes');
+    if (q.trim().length < 2) { cerrarBusca(); return; }
+    caja.innerHTML = CRM.cargando('', true);
+    caja.classList.remove('oculto');
     try {
-      const r = await CRM.llamar('clientesBuscar', q);
-      if (!r.length) { lista.innerHTML = '<p class="vacio">' + (q ? 'Sin resultados.' : 'Aún no hay clientes. Crea el primero.') + '</p>'; return; }
-      lista.innerHTML = r.map(function (c) {
-        return '<button class="tarjeta" type="button" data-id="' + esc(c.id) + '">' +
-          '<strong>' + esc(c.nombre) + '</strong>' +
-          '<span>' + esc(c.telefono) + (c.telefono && c.correo ? ' · ' : '') + esc(c.correo) + '</span>' +
-          '<small>' + esc(c.id) + (c.ciudad ? ' · ' + esc(c.ciudad) : '') + '</small></button>';
+      const r = await CRM.llamar('buscarGlobal', q);
+      if ($('#buscaGlobal').value !== q) return;
+      let html = '';
+      if (r.clientes.length) html += '<h4>Clientes</h4>' + r.clientes.map(function (c) {
+        return '<button class="res-item" type="button" data-cli="' + esc(c.id) + '"><span>' + esc(c.nombre || '(sin nombre)') +
+          '</span><small>' + esc(c.id) + ' · ' + esc(c.telefono || c.correo) + '</small></button>';
       }).join('');
-      lista.querySelectorAll('.tarjeta').forEach(function (b) {
-        b.onclick = function () { CRM.ir('clientes', { id: b.dataset.id }); };
+      if (r.folios.length) html += '<h4>Folios</h4>' + r.folios.map(function (t) {
+        return '<button class="res-item" type="button" data-folio="' + esc(t.folio) + '"><span><span class="mono">' + esc(t.folio) + '</span> · ' + esc(t.asunto) +
+          '</span><small>' + esc(t.cliente) + ' · ' + esc(t.estado) + '</small></button>';
+      }).join('');
+      caja.innerHTML = html || '<p class="vacio">Sin resultados para «' + esc(q) + '».</p>';
+      CRM.$$('.res-item', caja).forEach(function (b) {
+        b.onclick = function () {
+          cerrarBusca(); $('#buscaGlobal').value = '';
+          if (b.dataset.cli) CRM.ir('clientes', { id: b.dataset.cli }); else CRM.ir('folios', { folio: b.dataset.folio });
+        };
       });
-    } catch (e) { lista.innerHTML = '<p class="error">' + esc(e.message) + '</p>'; }
+    } catch (e) { caja.innerHTML = '<p class="error" style="padding:10px">' + esc(e.message) + '</p>'; }
   }
 
-  async function detalle(cont, id) {
-    const c = await CRM.llamar('clienteObtener', id);
-    const wa = CRM.waLink(c.telefono, 'Hola ' + c.nombre.split(' ')[0] + ', te escribimos de SEGES.');
-    const hayTickets = CRM.hayVista('tickets');
+  /* Notificaciones: se calculan en el servidor; "leído" se guarda en este navegador. */
+  function claveLeidas() { return 'crmLeidas:' + ((CRM.st.usuario && CRM.st.usuario.correo) || ''); }
+  function leidas() { try { return JSON.parse(localStorage.getItem(claveLeidas()) || '[]'); } catch (e) { return []; } }
+  function guardarLeidas(a) { try { localStorage.setItem(claveLeidas(), JSON.stringify(a.slice(-400))); } catch (e) {} }
+  function claveN(n) { return n.tipo + '|' + n.folio + '|' + n.fecha; }
+  function marcar(lista) { const l = leidas(); lista.forEach(function (n) { const k = claveN(n); if (l.indexOf(k) < 0) l.push(k); }); guardarLeidas(l); }
 
-    cont.innerHTML =
-      '<p><button class="btn-link" id="volver" type="button">← Clientes</button></p>' +
-      '<div class="encabezado"><div><p class="eyebrow">Cliente · ' + esc(c.id) + '</p><h1>' + esc(c.nombre) + '</h1></div></div>' +
-      '<div class="ficha"><div class="rejilla">' +
-        dato('Teléfono', c.telefono) + dato('Correo', c.correo) + dato('Ciudad', c.ciudad) +
-        dato('Alta', CRM.fecha(c.alta, false)) +
-      '</div>' + (c.notas ? dato('Notas', c.notas) : '') + '</div>' +
-      '<div class="acciones">' +
-        (hayTickets ? '<button class="btn" id="btnCaso" type="button">+ Nuevo caso</button>' : '') +
-        (wa ? '<a class="btn wa" href="' + esc(wa) + '" target="seges_whatsapp">Abrir WhatsApp</a>' : '') +
-        '<button class="btn sec" id="btnEditar" type="button">Editar</button>' +
-        (CRM.esAdmin() ? '<button class="btn peligro" id="btnBorrar" type="button">Borrar</button>' : '') +
-      '</div>' +
-      '<h2 class="sep">Historial de casos (' + c.historial.length + ')</h2>' +
-      (c.historial.length
-        ? '<div class="tabla-scroll"><table><thead><tr><th>Folio</th><th>Asunto</th><th>Tipificación</th><th>Canal</th><th>Estado</th><th>Creado</th></tr></thead><tbody>' +
-          c.historial.map(function (t) {
-            return '<tr class="clic" data-folio="' + esc(t.folio) + '"><td>' + esc(t.folio) + '</td><td>' + esc(t.asunto) + '</td><td>' +
-              esc(CRM.tipNombre(t.motivo)) + '</td><td>' + esc(t.canal) + '</td><td>' + etiquetaEstado(t.estado) + '</td><td>' + esc(CRM.fecha(t.creado)) + '</td></tr>';
-          }).join('') + '</tbody></table></div>'
-        : '<p class="vacio">Sin casos todavía.</p>');
-
-    $('#volver', cont).onclick = function () { CRM.ir('clientes'); };
-    $('#btnEditar', cont).onclick = function () { formulario(c); };
-    if ($('#btnCaso', cont)) $('#btnCaso', cont).onclick = function () { CRM.ir('tickets', { nuevo: true, cliente: c.id }); };
-    if ($('#btnBorrar', cont)) $('#btnBorrar', cont).onclick = function () { borrar(c); };
-    if (hayTickets) cont.querySelectorAll('tr.clic').forEach(function (tr) {
-      tr.onclick = function () { CRM.ir('tickets', { folio: tr.dataset.folio }); };
+  async function cargarNotif() {
+    if (!CRM.st.usuario) return;
+    try { ultimas = await CRM.llamar('notificaciones'); } catch (e) { return; }
+    pintarGlobo();
+    if (!$('#panelNotif').classList.contains('oculto')) pintarPanel();
+  }
+  function pintarGlobo() {
+    const l = leidas();
+    const n = ultimas.filter(function (x) { return l.indexOf(claveN(x)) < 0; }).length;
+    const g = $('#globo');
+    g.textContent = n > 9 ? '9+' : String(n);
+    g.classList.toggle('oculto', !n);
+  }
+  function pintarPanel() {
+    const p = $('#panelNotif'), l = leidas();
+    p.innerHTML = '<header><b>Notificaciones</b><button class="btn-link" type="button" id="nTodas">Marcar todo como leído</button></header>' +
+      (ultimas.length ? ultimas.map(function (n, i) {
+        const nueva = l.indexOf(claveN(n)) < 0;
+        return '<button class="notif t-' + esc(n.tipo) + (nueva ? ' nueva' : '') + '" type="button" data-i="' + i + '"><i></i><span>' + esc(n.texto) +
+          '<small>' + esc(n.folio) + ' · ' + esc(CRM.hace(n.fecha) || CRM.fecha(n.fecha)) + '</small></span></button>';
+      }).join('') : '<p class="vacio">Todo en orden. No hay pendientes.</p>');
+    $('#nTodas', p).onclick = function () { marcar(ultimas); pintarGlobo(); pintarPanel(); };
+    CRM.$$('.notif', p).forEach(function (b) {
+      b.onclick = function () {
+        const n = ultimas[Number(b.dataset.i)];
+        marcar([n]); pintarGlobo();
+        p.classList.add('oculto');
+        CRM.ir('folios', { folio: n.folio });
+      };
     });
   }
 
-  function dato(etiqueta, valor) {
-    return '<div class="dato"><b>' + esc(etiqueta) + '</b>' + (valor ? esc(valor) : '—') + '</div>';
+  document.addEventListener('DOMContentLoaded', function () {
+    const q = $('#buscaGlobal');
+    q.addEventListener('input', function () { clearTimeout(tBusca); tBusca = setTimeout(function () { buscar(q.value); }, 300); });
+    q.addEventListener('keydown', function (e) { if (e.key === 'Escape') { q.value = ''; cerrarBusca(); } });
+    q.addEventListener('focus', function () { if (q.value.trim().length >= 2 && $('#buscaRes').innerHTML) $('#buscaRes').classList.remove('oculto'); });
+    $('#btnCampana').onclick = function (e) {
+      e.stopPropagation();
+      const p = $('#panelNotif');
+      if (p.classList.toggle('oculto')) return;
+      pintarPanel();
+      cargarNotif();
+    };
+    document.addEventListener('mousedown', function (e) {
+      if (!e.target.closest('.buscador')) cerrarBusca();
+      if (!e.target.closest('#panelNotif') && !e.target.closest('#btnCampana')) $('#panelNotif').classList.add('oculto');
+    });
+  });
+
+  CRM.st.alEntrar = function () { cargarNotif(); clearInterval(tNotif); tNotif = setInterval(cargarNotif, 120000); };
+  CRM.st.alSalir = function () { clearInterval(tNotif); ultimas = []; $('#globo').classList.add('oculto'); $('#panelNotif').classList.add('oculto'); };
+  CRM.notificacionesRefrescar = cargarNotif;
+})();
+
+/* ═════════════ Inicio (panel con gráficas) ═════════════ */
+(function () {
+  const $ = CRM.$, esc = CRM.esc;
+
+  CRM.registrarVista('inicio', {
+    titulo: 'Inicio', icono: 'i', orden: 10,
+    render: async function (cont, p, vigente) {
+      const t = await CRM.llamar('tablero');
+      if (!vigente()) return;
+      const pendNoUrg = Math.max(0, t.abiertos - t.urgentes);
+      const hora = new Date().toLocaleString('es-MX', { timeZone: CRM.st.cfg.zona, hour: 'numeric', hour12: false });
+      const saludo = hora < 12 ? 'Buenos días' : (hora < 19 ? 'Buenas tardes' : 'Buenas noches');
+      cont.innerHTML =
+        '<div class="encabezado"><div><p class="eyebrow">Panel</p><h1>' + esc(saludo) + ', ' + esc(String(CRM.st.usuario.nombre).split(' ')[0]) + '</h1></div>' +
+        '<div class="acciones"><button class="btn" id="iNuevo" type="button">+ Nuevo folio</button><button class="btn sec" id="iRec" type="button">Actualizar</button></div></div>' +
+        '<div class="kpis">' +
+          kpi('pend', t.abiertos, 'Pendientes', 'var(--ambar)') +
+          kpi('urg', t.urgentes, 'Urgentes pendientes', 'var(--rojo)') +
+          kpi('venc', t.vencidos, 'Vencidos (fuera de tiempo)', 'var(--rojo)') +
+          kpi('aten', t.atendidos, 'Atendidos', 'var(--verde)') +
+          kpi('mios', t.misAbiertos, 'Mis folios abiertos', 'var(--azul)') +
+          kpi('hoy', t.resueltosHoy, 'Resueltos hoy', 'var(--turq)') +
+        '</div>' +
+        '<div class="graficas">' +
+          '<div class="panel"><div class="panel-cab"><h2>Últimos 14 días</h2><div class="leyenda"><span><i style="background:var(--azul)"></i>Creados</span>' +
+            '<span><i style="background:var(--verde)"></i>Resueltos</span></div></div>' + barrasDias(t.dias) + '</div>' +
+          '<div class="panel"><div class="panel-cab"><h2>Atendidos y pendientes</h2></div>' +
+            dona([{ n: 'Atendidos', v: t.atendidos, c: 'var(--verde)' }, { n: 'Pendientes', v: pendNoUrg, c: 'var(--ambar)' },
+                  { n: 'Urgentes pendientes', v: t.urgentes, c: 'var(--rojo)' }], t.total, 'folios') + '</div>' +
+          '<div class="panel"><div class="panel-cab"><h2>Folios por estado</h2></div>' +
+            barrasH(CRM.st.cfg.estados.map(function (e) { return { n: e, v: t.porEstado[e] || 0, c: CRM.colorEstado(e) }; }), 'estado') + '</div>' +
+          '<div class="panel"><div class="panel-cab"><h2>Urgentes pendientes</h2><span class="chip p-urgente">' + t.urgentes + '</span></div>' +
+            (t.urgentesLista.length ? '<div class="lista">' + t.urgentesLista.map(function (u) {
+              return '<button class="tarjeta" type="button" data-folio="' + esc(u.folio) + '"><div class="cab-t"><strong>' + esc(u.asunto) +
+                '</strong><span class="mono">' + esc(u.folio) + '</span></div><span>' + esc(u.cliente) + ' · ' + esc(u.estado) + ' · ' + esc(CRM.hace(u.creado)) + '</span></button>';
+            }).join('') + '</div>' : '<p class="vacio">Sin urgentes pendientes.</p>') + '</div>' +
+          '<div class="panel"><div class="panel-cab"><h2>Pendientes por área</h2></div>' +
+            barrasH(orden(t.porArea).map(function (x) { return { n: x[0], v: x[1], c: 'var(--azul)' }; }), 'area') + '</div>' +
+          '<div class="panel"><div class="panel-cab"><h2>Carga por persona</h2><span class="ayuda" style="margin:0">abiertos</span></div>' +
+            barrasH(orden(t.porAgente).map(function (x) { return { n: x[0], v: x[1], c: 'var(--violeta)' }; }), 'atendio') + '</div>' +
+        '</div>';
+      $('#iNuevo', cont).onclick = function () { CRM.nuevoFolio(); };
+      $('#iRec', cont).onclick = function () { CRM.recargar(); };
+      const filtros = { pend: {}, urg: { prioridad: 'Urgente' }, venc: { semaforo: 'vencido' }, aten: { soloCerrados: true },
+                        mios: { atendio: CRM.st.usuario.nombre }, hoy: { soloCerrados: true } };
+      CRM.$$('.kpi', cont).forEach(function (b) { b.onclick = function () { CRM.irFolios(filtros[b.dataset.k]); }; });
+      CRM.$$('.tarjeta', cont).forEach(function (b) { b.onclick = function () { CRM.ir('folios', { folio: b.dataset.folio }); }; });
+      CRM.$$('[data-filtro]', cont).forEach(function (b) {
+        b.onclick = function () { const f = {}; f[b.dataset.filtro] = b.dataset.valor; if (b.dataset.filtro === 'estado') f.soloEstado = b.dataset.valor; CRM.irFolios(f); };
+      });
+    }
+  });
+
+  function kpi(k, v, txt, color) {
+    return '<button class="kpi" type="button" data-k="' + k + '" style="--c:' + color + '"><b>' + esc(v) + '</b><span>' + esc(txt) + '</span></button>';
+  }
+  function orden(o) { return Object.keys(o || {}).map(function (k) { return [k, o[k]]; }).sort(function (a, b) { return b[1] - a[1]; }); }
+
+  function barrasDias(dias) {
+    const W = 640, H = 200, pi = 26, pb = 24, pt = 10;
+    const max = Math.max(1, Math.max.apply(null, dias.map(function (d) { return Math.max(d.creados, d.resueltos); })));
+    const paso = Math.ceil(max / 4);
+    const tope = paso * 4;
+    const ancho = (W - pi) / dias.length, bw = Math.min(14, ancho / 3);
+    let s = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Creados y resueltos por día">';
+    for (let i = 0; i <= 4; i++) {
+      const y = pt + (H - pt - pb) * (1 - i / 4);
+      s += '<line x1="' + pi + '" x2="' + W + '" y1="' + y + '" y2="' + y + '" stroke="#263052" stroke-width="1"/>' +
+           '<text x="' + (pi - 6) + '" y="' + (y + 4) + '" text-anchor="end">' + (paso * i) + '</text>';
+    }
+    dias.forEach(function (d, i) {
+      const x = pi + ancho * i + ancho / 2;
+      const alto = function (v) { return (H - pt - pb) * v / tope; };
+      const hc = alto(d.creados), hr = alto(d.resueltos);
+      s += '<rect x="' + (x - bw - 1) + '" y="' + (H - pb - hc) + '" width="' + bw + '" height="' + hc + '" rx="3" fill="#6E9BE8"><title>' + d.dia + ': ' + d.creados + ' creados</title></rect>' +
+           '<rect x="' + (x + 1) + '" y="' + (H - pb - hr) + '" width="' + bw + '" height="' + hr + '" rx="3" fill="#3FB984"><title>' + d.dia + ': ' + d.resueltos + ' resueltos</title></rect>';
+      if (i % 2 === 0 || dias.length <= 7) s += '<text x="' + x + '" y="' + (H - 6) + '" text-anchor="middle">' + d.dia.slice(8) + '/' + d.dia.slice(5, 7) + '</text>';
+    });
+    return s + '</svg>';
   }
 
-  function etiquetaEstado(e) {
-    const ult = (CRM.st.cfg.estados || []).slice(-1)[0];
-    return '<span class="etiqueta' + (e === ult ? ' verde' : '') + '">' + esc(e) + '</span>';
+  function dona(segs, total, unidad) {
+    const R = 54, C = 2 * Math.PI * R;
+    const suma = segs.reduce(function (a, x) { return a + x.v; }, 0);
+    let off = 0, s = '<svg viewBox="0 0 140 140" width="150" height="150" role="img" aria-label="Distribución de folios">' +
+      '<circle cx="70" cy="70" r="' + R + '" fill="none" stroke="#1E2849" stroke-width="20"/>';
+    segs.forEach(function (x) {
+      if (!x.v || !suma) return;
+      const largo = C * x.v / suma;
+      s += '<circle cx="70" cy="70" r="' + R + '" fill="none" stroke="' + x.c + '" stroke-width="20" stroke-dasharray="' + largo + ' ' + (C - largo) +
+           '" stroke-dashoffset="' + (-off) + '" transform="rotate(-90 70 70)"><title>' + esc(x.n) + ': ' + x.v + '</title></circle>';
+      off += largo;
+    });
+    s += '<text x="70" y="68" text-anchor="middle" style="font-size:26px;font-weight:750;fill:#E6EAF3">' + total + '</text>' +
+         '<text x="70" y="88" text-anchor="middle">' + esc(unidad) + '</text></svg>';
+    return '<div class="dona-cont">' + s + '<div class="leyenda">' + segs.map(function (x) {
+      const pct = suma ? Math.round(100 * x.v / suma) : 0;
+      return '<span><i style="background:' + x.c + '"></i>' + esc(x.n) + '<b>' + x.v + '</b> <small>(' + pct + '%)</small></span>';
+    }).join('') + '</div></div>';
   }
 
-  function formulario(c) {
+  function barrasH(items, filtro) {
+    if (!items.length || !items.some(function (x) { return x.v; })) return '<p class="vacio">Sin datos todavía.</p>';
+    const max = Math.max.apply(null, items.map(function (x) { return x.v; })) || 1;
+    return '<div class="barras-h">' + items.map(function (x) {
+      return '<div class="barra-h" style="--c:' + x.c + '"><span title="' + esc(x.n) + '">' +
+        (filtro && x.v ? '<button class="btn-link" type="button" data-filtro="' + filtro + '" data-valor="' + esc(x.n) + '" style="color:var(--suave);font-weight:500">' + esc(x.n) + '</button>' : esc(x.n)) +
+        '</span><div class="pista"><i style="width:' + (100 * x.v / max) + '%"></i></div><b>' + x.v + '</b></div>';
+    }).join('') + '</div>';
+  }
+})();
+
+/* ═════════════ Clientes ═════════════ */
+(function () {
+  const $ = CRM.$, esc = CRM.esc;
+  let temporizador, ultimaQ = '';
+
+  CRM.registrarVista('clientes', {
+    titulo: 'Clientes', icono: 'c', orden: 20,
+    render: async function (cont, p, vigente) {
+      if (p.id) return ficha(cont, p.id, vigente);
+      cont.innerHTML =
+        '<div class="encabezado"><div><p class="eyebrow">Directorio</p><h1>Clientes</h1></div>' +
+        '<div class="acciones"><button class="btn" id="btnNuevo" type="button">+ Nuevo</button></div></div>' +
+        '<div class="filtros"><input id="qCli" type="search" placeholder="Buscar por nombre, teléfono, correo o número" autocomplete="off" value="' + esc(ultimaQ) + '"></div>' +
+        '<div id="tablaCli">' + CRM.cargando('Cargando clientes…') + '</div>';
+      $('#btnNuevo', cont).onclick = function () { formulario(null); };
+      const q = $('#qCli', cont);
+      q.oninput = function () { clearTimeout(temporizador); temporizador = setTimeout(function () { ultimaQ = q.value; tabla(q.value); }, 300); };
+      await tabla(ultimaQ);
+    }
+  });
+
+  function celda(v, mono) { return v ? '<td' + (mono ? ' class="mono"' : '') + '>' + esc(v) + '</td>' : '<td class="falta">Falta</td>'; }
+
+  async function tabla(q) {
+    const caja = $('#tablaCli');
+    if (!caja) return;
+    try {
+      const r = await CRM.llamar('clientesBuscar', q || '');
+      if (!$('#tablaCli')) return;
+      caja.innerHTML = r.length ? '<div class="tabla-cont"><table><thead><tr><th>Número</th><th>Nombre</th><th>Teléfono</th><th>Correo</th>' +
+        '<th class="ocultar-cel">Ciudad</th><th class="ocultar-cel">Actualizado</th></tr></thead><tbody>' +
+        r.map(function (c) {
+          return '<tr class="clic" data-id="' + esc(c.id) + '"><td class="mono">' + esc(c.id) + '</td>' + celda(c.nombre) + celda(c.telefono, true) + celda(c.correo) +
+            (c.ciudad ? '<td class="ocultar-cel">' + esc(c.ciudad) + '</td>' : '<td class="ocultar-cel falta">Falta</td>') +
+            '<td class="ocultar-cel"><small>' + esc(CRM.fecha(c.actualizado || c.alta, false)) + '</small></td></tr>';
+        }).join('') + '</tbody></table></div>' + (r.length >= 100 ? '<p class="ayuda">Se muestran los 100 más recientes; usa la búsqueda para encontrar otros.</p>' : '')
+        : '<div class="panel"><p class="vacio">' + (q ? 'Sin resultados para «' + esc(q) + '».' : 'Aún no hay clientes. Crea el primero con «+ Nuevo».') + '</p></div>';
+      CRM.$$('tr.clic', caja).forEach(function (tr) { tr.onclick = function () { CRM.ir('clientes', { id: tr.dataset.id }); }; });
+    } catch (e) { caja.innerHTML = '<p class="error">' + esc(e.message) + '</p>'; }
+  }
+
+  function esAuto(c) { return /alta autom[aá]tica/i.test(c.notas || ''); }
+  function faltantes(c) {
+    return [['Nombre', c.nombre], ['Teléfono', c.telefono], ['Correo', c.correo], ['Ciudad', c.ciudad]]
+      .filter(function (x) { return !x[1]; }).map(function (x) { return x[0]; });
+  }
+
+  async function ficha(cont, id, vigente) {
+    const c = await CRM.llamar('clienteObtener', id);
+    if (!vigente()) return;
+    const wa = CRM.waLink(c.telefono, 'Hola ' + String(c.nombre || '').split(' ')[0] + ', te escribimos de SEGES.');
+    const falta = faltantes(c);
+    const auto = esAuto(c);
+    cont.innerHTML =
+      '<div class="encabezado"><div><p class="eyebrow"><button class="btn-link" id="volver" type="button">← Clientes</button> · <span class="mono">' + esc(c.id) + '</span></p>' +
+        '<h1>' + (c.nombre ? esc(c.nombre) : '<span class="falta">Sin nombre</span>') + '</h1></div>' +
+        '<div class="acciones">' +
+          (wa ? '<a class="btn wa" id="btnWa" target="seges_whatsapp" rel="noopener" href="' + esc(wa) + '">Abrir WhatsApp</a>' : '<button class="btn wa" type="button" disabled title="Falta el teléfono">Abrir WhatsApp</button>') +
+          '<button class="btn" id="btnFolio" type="button">+ Nuevo folio</button>' +
+          '<button class="btn sec" id="btnEditar" type="button">Editar</button>' +
+          (CRM.esJefe() ? '<button class="btn peligro" id="btnBorrar" type="button">Eliminar</button>' : '') +
+        '</div></div>' +
+      ((auto || falta.length) && falta.length ? '<div class="aviso-regla rojo">' + (auto ? 'Cliente dado de alta automáticamente desde un correo. ' : '') +
+        'Faltan datos: ' + esc(falta.join(', ')) + '. Complétalos con «Editar».</div>' : '') +
+      '<div class="det">' +
+        '<div class="panel"><h2>Datos del cliente</h2><div class="datos">' +
+          CRM.dato('Número', '<span class="mono">' + esc(c.id) + '</span>', true) +
+          CRM.dato('Nombre', c.nombre, false, true) +
+          CRM.dato('Teléfono', c.telefono, false, true) +
+          CRM.dato('Correo', c.correo, false, true) +
+          CRM.dato('Ciudad', c.ciudad, false, true) +
+          CRM.dato('Notas', c.notas) +
+          CRM.dato('Alta', CRM.fecha(c.alta, false)) +
+          CRM.dato('Folios', String(c.historial.length)) +
+        '</div></div>' +
+        '<div class="panel"><div class="panel-cab"><h2>Historial de casos</h2>' +
+          (c.historial.length > 5 ? '<button class="btn-link" id="verTodos" type="button">Ver todos (' + c.historial.length + ')</button>' : '') + '</div>' +
+          '<div id="hist"></div></div>' +
+      '</div>';
+    const pintarHist = function (todos) {
+      const h = todos ? c.historial : c.historial.slice(0, 5);
+      $('#hist', cont).innerHTML = h.length ? '<div class="tabla-cont"><table><thead><tr><th>Folio</th><th>Asunto</th><th>Estado</th><th class="ocultar-cel">Prioridad</th>' +
+        '<th class="ocultar-cel">Atiende</th><th>Fecha</th></tr></thead><tbody>' + h.map(function (t) {
+          return '<tr class="clic" data-folio="' + esc(t.folio) + '"><td class="mono">' + esc(t.folio) + '</td><td>' + esc(t.asunto) + '<small>' + esc(CRM.tipNombre(t.motivo)) +
+            '</small></td><td>' + CRM.chipEstado(t.estado) + '</td><td class="ocultar-cel">' + CRM.chipPrioridad(t.prioridad) + '</td><td class="ocultar-cel">' +
+            esc(t.atendio || '—') + '</td><td><small>' + esc(CRM.fecha(t.creado)) + '</small></td></tr>';
+        }).join('') + '</tbody></table></div>' : '<p class="vacio">Sin casos todavía.</p>';
+      CRM.$$('tr.clic', cont).forEach(function (tr) { tr.onclick = function () { CRM.ir('folios', { folio: tr.dataset.folio }); }; });
+    };
+    pintarHist(false);
+    if ($('#verTodos', cont)) $('#verTodos', cont).onclick = function () {
+      const todos = this.dataset.todos !== '1';
+      this.dataset.todos = todos ? '1' : '';
+      this.textContent = todos ? 'Ver menos' : 'Ver todos (' + c.historial.length + ')';
+      pintarHist(todos);
+    };
+    $('#volver', cont).onclick = function () { CRM.ir('clientes'); };
+    $('#btnEditar', cont).onclick = function () { formulario(c); };
+    $('#btnFolio', cont).onclick = function () { CRM.nuevoFolio(c); };
+    if ($('#btnBorrar', cont)) $('#btnBorrar', cont).onclick = function () { borrar(c); };
+  }
+
+  function formulario(c, alGuardar) {
+    const nuevo = !c;
     c = c || {};
     const m = CRM.modal(
-      '<p class="eyebrow">' + (c.id ? esc(c.id) : 'Directorio') + '</p><h2>' + (c.id ? 'Editar cliente' : 'Nuevo cliente') + '</h2>' +
-      '<form id="fCli">' +
-        '<label>Nombre *<input name="nombre" required maxlength="120" value="' + esc(c.nombre) + '"></label>' +
+      '<p class="eyebrow">' + (nuevo ? 'Nuevo cliente' : 'Editar · ' + esc(c.id)) + '</p><h2>' + (nuevo ? 'Alta de cliente' : esc(c.nombre || 'Cliente')) + '</h2>' +
+      '<form id="fCli" novalidate>' +
+        '<label>Nombre *<input name="nombre" maxlength="120" required value="' + esc(c.nombre) + '"' + (c.id && !c.nombre ? ' class="falta"' : '') + '></label>' +
         '<div class="rejilla">' +
-          '<label>Teléfono (10 dígitos)<input name="telefono" type="tel" inputmode="tel" value="' + esc(c.telefono) + '"></label>' +
-          '<label>Correo<input name="correo" type="email" value="' + esc(c.correo) + '"></label>' +
+          '<label>Correo<input name="correo" type="email" maxlength="120" value="' + esc(c.correo) + '"></label>' +
+          '<label>Teléfono (10 dígitos)<input name="telefono" inputmode="tel" maxlength="20" value="' + esc(c.telefono) + '"></label>' +
+          '<label>Número de cliente<input readonly value="' + esc(c.id || 'Se asigna al guardar') + '"></label>' +
+          '<label>Ciudad<input name="ciudad" maxlength="80" value="' + esc(c.ciudad) + '"></label>' +
         '</div>' +
-        '<label>Ciudad<input name="ciudad" maxlength="80" value="' + esc(c.ciudad) + '"></label>' +
         '<label>Notas<textarea name="notas" rows="3" maxlength="2000">' + esc(c.notas) + '</textarea></label>' +
+        '<p class="ayuda">Necesita al menos teléfono o correo.</p>' +
         '<p id="fErr" class="error"></p>' +
         '<div class="acciones"><button class="btn" type="submit">Guardar</button><button class="btn sec" type="button" id="fCancelar">Cancelar</button></div>' +
-      '</form>');
-    $('#fCancelar', m).onclick = CRM.cerrarModal;
-    $('#fCli', m).onsubmit = async function (ev) {
+      '</form>', { alCancelar: function () { cancelar(); } });
+    const f = $('#fCli', m), inicial = CRM.firmaForm(f);
+    const cancelar = function () { CRM.descartar(f, inicial); };
+    $('#fCancelar', m).onclick = cancelar;
+    f.nombre.focus();
+    f.onsubmit = async function (ev) {
       ev.preventDefault();
-      const btn = $('button[type=submit]', m);
-      btn.disabled = true;
+      const btn = $('button[type=submit]', f);
       $('#fErr', m).textContent = '';
+      const d = CRM.datosForm(f);
+      if (!d.nombre.trim()) { $('#fErr', m).textContent = 'Falta el nombre.'; return; }
+      if (!d.telefono.trim() && !d.correo.trim()) { $('#fErr', m).textContent = 'Escribe al menos un teléfono o un correo.'; return; }
+      if (c.id) d.id = c.id;
+      btn.disabled = true; btn.textContent = 'Guardando…';
       try {
-        const d = CRM.datosForm(ev.target);
-        if (c.id) d.id = c.id;
         const r = await CRM.llamar('clienteGuardar', d);
         CRM.cerrarModal();
         CRM.aviso(r.nuevo ? 'Cliente ' + r.id + ' creado.' : 'Cambios guardados.');
-        CRM.ir('clientes', { id: r.id });
-      } catch (e) {
-        $('#fErr', m).textContent = e.message;
-        btn.disabled = false;
-      }
+        if (alGuardar) alGuardar(r.id); else CRM.ir('clientes', { id: r.id });
+      } catch (e) { $('#fErr', m).textContent = e.message; btn.disabled = false; btn.textContent = 'Guardar'; }
     };
   }
 
   async function borrar(c) {
-    if (!(await CRM.confirmar('¿Borrar a ' + c.nombre + ' (' + c.id + ')? No se puede deshacer.', 'Borrar'))) return;
+    if (c.historial.length) {
+      CRM.aviso('No se puede eliminar: ' + (c.nombre || c.id) + ' tiene ' + c.historial.length + ' folio(s). Elimina primero sus folios.', 'mal');
+      return;
+    }
+    if (!(await CRM.confirmarBorrado('al cliente ' + (c.nombre || '') + ' (' + c.id + ')'))) return;
     try {
       await CRM.llamar('clienteBorrar', c.id);
-      CRM.aviso('Cliente borrado.');
+      CRM.aviso('Cliente eliminado.');
       CRM.ir('clientes');
     } catch (e) { CRM.aviso(e.message, 'mal'); }
   }
+
+  CRM.clienteFormulario = formulario;
 })();
-/* SEGES – Mini-CRM · Módulo 2: vistas Casos y Respuestas rápidas. */
+
+/* ═════════════ Folios: Kanban, nuevo folio, seguimiento ═════════════ */
 (function () {
   const $ = CRM.$, esc = CRM.esc;
   let temporizador;
-  const filtro = { estado: 'abiertos', q: '', semaforo: '' };
-
-  /* ───────── utilidades ───────── */
-
-  function horasTxt(ms) {
-    const h = Math.round(Math.abs(ms) / 3600000);
-    if (h < 1) return 'menos de 1 h';
-    if (h < 48) return h + ' h';
-    return Math.round(h / 24) + ' días';
-  }
-
-  function semaforoTxt(t) {
-    if (t.semaforo === 'cerrado') return 'Resuelto a tiempo';
-    if (t.semaforo === 'cerrado-tarde') return 'Resuelto fuera de tiempo';
-    if (!t.vence) return '';
-    const dif = new Date(t.vence).getTime() - Date.now();
-    return dif < 0 ? 'Vencido hace ' + horasTxt(dif) : 'Vence en ' + horasTxt(dif);
-  }
-
-  function chipEstado(t) {
-    const tipo = t.cerrado ? 'ok' : (t.estado === CRM.st.cfg.estados[0] ? 'nuevo' : '');
-    return '<span class="chip ' + tipo + '">' + esc(t.estado) + '</span>';
-  }
-
-  function chipSemaforo(t) {
-    return '<span class="chip sem-' + esc(t.semaforo) + '"><i class="punto"></i>' + esc(semaforoTxt(t)) + '</span>';
-  }
+  const filtro = { q: '', prioridad: '', atendio: '', canal: '', area: '', semaforo: '', soloEstado: '', soloCerrados: false };
+  let personas = [];
+  const POR_COLUMNA = 40;
+  const TIPOS_CONTACTO = ['WhatsApp', 'Llamada', 'Correo enviado'];
 
   function rellenar(texto, t) {
-    const nombre = String(t.cliente || '').split(' ')[0];
-    return String(texto)
-      .replace(/\{nombre\}/g, nombre)
-      .replace(/\{folio\}/g, t.folio || '')
-      .replace(/\{pedido\}/g, t.pedido || '')
-      .replace(/\{motivo\}/g, CRM.tipNombre(t.motivo).toLowerCase())
-      .replace(/\{tienda\}/g, 'SEGES');
+    return String(texto || '')
+      .replace(/\{nombre\}/g, String(t.cliente || '').split(' ')[0])
+      .replace(/\{folio\}/g, t.folio)
+      .replace(/\{pedido\}/g, t.pedido || 's/n')
+      .replace(/\{motivo\}/g, CRM.tipNombre(t.motivo).toLowerCase());
   }
-
   async function respuestas() {
     if (!CRM.st.respuestas) CRM.st.respuestas = await CRM.llamar('respuestasListar', false);
     return CRM.st.respuestas;
   }
+  function horasTxt(ms) {
+    const h = Math.abs(ms) / 3600000;
+    if (h < 1) return Math.round(h * 60) + ' min';
+    if (h < 48) return Math.round(h) + ' h';
+    return Math.round(h / 24) + ' d';
+  }
+  function semaforoTxt(t) {
+    if (t.cerrado) return '';
+    const ms = new Date(t.vence).getTime() - Date.now();
+    if (isNaN(ms)) return '';
+    return ms < 0 ? 'Vencido hace ' + horasTxt(ms) : 'Vence en ' + horasTxt(ms);
+  }
 
-  /* ───────── vista Casos ───────── */
+  CRM.irFolios = function (f) {
+    Object.keys(filtro).forEach(function (k) { filtro[k] = k === 'soloCerrados' ? false : ''; });
+    Object.assign(filtro, f || {});
+    CRM.ir('folios');
+  };
 
-  CRM.registrarVista('tickets', {
-    titulo: 'Casos',
-    orden: 10,
-    render: async function (cont, p) {
-      if (p.folio) return detalle(cont, p.folio);
-      if (p.nuevo) { lista(cont); return formularioNuevo(p.cliente); }
-      return lista(cont);
+  CRM.registrarVista('folios', {
+    titulo: 'Folios', icono: 'f', orden: 30,
+    render: async function (cont, p, vigente) {
+      if (p.folio) return detalle(cont, p.folio, vigente);
+      const cfg = CRM.st.cfg;
+      const areas = [];
+      (cfg.tipificaciones || []).forEach(function (x) { if (areas.indexOf(x.area) < 0) areas.push(x.area); });
+      cont.innerHTML =
+        '<div class="encabezado"><div><p class="eyebrow">Seguimiento</p><h1>Folios</h1></div>' +
+        '<div class="acciones"><button class="btn" id="btnNuevo" type="button">+ Nuevo folio</button>' +
+        '<button class="btn sec" id="btnRevisar" type="button">Revisar correo</button></div></div>' +
+        '<div class="filtros">' +
+          '<input id="fq" type="search" placeholder="Buscar folio, cliente, asunto, pedido…" value="' + esc(filtro.q) + '">' +
+          '<select id="fPri">' + CRM.opciones(cfg.prioridades, filtro.prioridad, 'Prioridad: todas') + '</select>' +
+          '<select id="fAt"><option value="">Atiende: todos</option></select>' +
+          '<select id="fCanal">' + CRM.opciones(cfg.canales, filtro.canal, 'Canal: todos') + '</select>' +
+          '<select id="fArea">' + CRM.opciones(areas, filtro.area, 'Área: todas') + '</select>' +
+          '<select id="fSem"><option value="">Tiempo: todos</option><option value="vencido">Vencidos</option><option value="pronto">Por vencer</option></select>' +
+          '<button class="btn-link" id="fLimpiar" type="button">Limpiar filtros</button>' +
+        '</div>' +
+        '<div class="resumen" id="resumen"></div>' +
+        '<div id="tablero">' + CRM.cargando('Cargando folios…') + '</div>';
+      $('#fSem', cont).value = filtro.semaforo;
+      $('#btnNuevo', cont).onclick = function () { nuevoFolio(); };
+      $('#btnRevisar', cont).onclick = async function () {
+        const b = this; b.disabled = true; b.textContent = 'Revisando…';
+        try {
+          const r = await CRM.llamar('correoRevisarAhora');
+          CRM.aviso(r.ocupado ? 'Ya se está revisando el correo; intenta en un minuto.' :
+            (r.nuevos || r.respuestas ? 'Correo: ' + r.nuevos + ' folio(s) nuevo(s), ' + r.respuestas + ' respuesta(s).' : 'Sin correos nuevos.'));
+          cargar(); CRM.notificacionesRefrescar();
+        } catch (e) { CRM.aviso(e.message, 'mal'); }
+        b.disabled = false; b.textContent = 'Revisar correo';
+      };
+      const enlazar = function (sel, k) { $(sel, cont).onchange = function () { filtro[k] = this.value; filtro.soloEstado = ''; filtro.soloCerrados = false; cargar(); }; };
+      enlazar('#fPri', 'prioridad'); enlazar('#fAt', 'atendio'); enlazar('#fCanal', 'canal'); enlazar('#fArea', 'area'); enlazar('#fSem', 'semaforo');
+      const q = $('#fq', cont);
+      q.oninput = function () { clearTimeout(temporizador); temporizador = setTimeout(function () { filtro.q = q.value; cargar(); }, 300); };
+      $('#fLimpiar', cont).onclick = function () { CRM.irFolios({}); };
+      await cargar();
     }
   });
 
-  async function lista(cont) {
-    cont.innerHTML =
-      '<div class="encabezado"><div><p class="eyebrow">Atención al cliente</p><h1>Casos</h1></div>' +
-      '<div class="chips"><button class="btn sec" id="btnRevisar" type="button">Revisar correo</button><button class="btn" id="btnNuevoCaso" type="button">+ Nuevo caso</button></div></div>' +
-      '<div class="stats" id="stats"></div>' +
-      '<div class="filtros">' +
-        '<input id="qCaso" class="buscador" type="search" placeholder="Buscar folio, cliente, asunto o pedido" value="' + esc(filtro.q) + '">' +
-        '<select id="fEstado"><option value="abiertos">Abiertos</option><option value="todos">Todos</option>' +
-          CRM.opciones(CRM.st.cfg.estados) + '</select>' +
-      '</div>' +
-      '<div id="listaCasos" class="lista"><p class="cargando">Cargando casos…</p></div>';
-    $('#fEstado', cont).value = filtro.estado;
-    $('#btnNuevoCaso', cont).onclick = function () { formularioNuevo(); }; $('#btnRevisar', cont).onclick = async function () { const b = this; b.disabled = true; b.textContent = 'Revisando…'; try { const r = await CRM.llamar('correoRevisarAhora'); CRM.aviso(r.ocupado ? 'Ya se está revisando el correo; intenta en un minuto.' : (r.nuevos || r.respuestas ? 'Correo: ' + r.nuevos + ' caso(s) nuevo(s), ' + r.respuestas + ' respuesta(s).' : 'Sin correos nuevos.')); cargar(); } catch (e) { CRM.aviso(e.message, 'mal'); } b.disabled = false; b.textContent = 'Revisar correo'; };
-    $('#fEstado', cont).onchange = function (e) { filtro.estado = e.target.value; filtro.semaforo = ''; cargar(); };
-    const q = $('#qCaso', cont);
-    q.oninput = function () { clearTimeout(temporizador); temporizador = setTimeout(function () { filtro.q = q.value; cargar(); }, 300); };
-    await cargar();
-  }
-
-  const memoria = {};
   async function cargar() {
-    const caja = $('#listaCasos');
+    const caja = $('#tablero');
     if (!caja) return;
-    const clave = JSON.stringify(filtro);
-    if (memoria[clave]) pintarLista(caja, memoria[clave]);   // muestra al instante lo último conocido
+    const f = { estado: 'todos', q: filtro.q, prioridad: filtro.prioridad, atendio: filtro.atendio, canal: filtro.canal, area: filtro.area, semaforo: filtro.semaforo };
     try {
-      const r = await CRM.llamar('ticketsListar', filtro);
-      memoria[clave] = r;
-      if (clave === JSON.stringify(filtro) && $('#listaCasos') === caja) pintarLista(caja, r);
-    } catch (e) { if (!memoria[clave]) caja.innerHTML = '<p class="error">' + esc(e.message) + '</p>'; else CRM.aviso(e.message, 'mal'); }
+      const r = await CRM.llamar('ticketsListar', f);
+      if (!$('#tablero')) return;
+      r.casos.forEach(function (t) { if (t.atendio && personas.indexOf(t.atendio) < 0) personas.push(t.atendio); });
+      if (CRM.st.usuario && personas.indexOf(CRM.st.usuario.nombre) < 0) personas.push(CRM.st.usuario.nombre);
+      personas.sort();
+      const fAt = $('#fAt');
+      if (fAt) fAt.innerHTML = CRM.opciones(personas, filtro.atendio, 'Atiende: todos');
+      pintar(caja, r);
+    } catch (e) { caja.innerHTML = '<p class="error">' + esc(e.message) + '</p>'; }
   }
 
-  function pintarLista(caja, r) {
-      pintarStats(r.conteo);
-      if (!r.casos.length) {
-        caja.innerHTML = '<div class="vacio-caja"><p class="eyebrow">Todo en orden</p><p>' +
-          (filtro.q || filtro.semaforo ? 'No hay casos con ese filtro.' : 'No hay casos abiertos.') + '</p></div>';
-        return;
-      }
-      caja.innerHTML = r.casos.map(function (t) {
-        return '<button class="tarjeta caso sem-borde-' + esc(t.semaforo) + '" type="button" data-folio="' + esc(t.folio) + '">' +
-          '<div class="caso-arriba"><span class="folio">' + esc(t.folio) + '</span>' + chipSemaforo(t) + '</div>' +
-          '<strong>' + esc(t.asunto) + '</strong>' +
-          '<span>' + esc(t.cliente) + (t.pedido ? ' · Pedido #' + esc(t.pedido) : '') + '</span>' +
-          '<div class="chips">' + chipEstado(t) + '<span class="chip">' + esc(CRM.tipNombre(t.motivo)) + '</span><span class="chip">' + esc(t.canal) + '</span>' +
-          (t.prioridad === 'Alta' || t.prioridad === 'Urgente' ? '<span class="chip alerta">' + esc(t.prioridad) + '</span>' : '') + '</div>' +
-        '</button>';
-      }).join('');
-      caja.querySelectorAll('.caso').forEach(function (b) {
-        b.onclick = function () { CRM.ir('tickets', { folio: b.dataset.folio }); };
+  function pintar(caja, r) {
+    const estados = CRM.st.cfg.estados;
+    let casos = r.casos;
+    if (filtro.soloCerrados) casos = casos.filter(function (t) { return t.cerrado; });
+    const grupos = {};
+    estados.forEach(function (e) { grupos[e] = []; });
+    casos.forEach(function (t) { (grupos[t.estado] = grupos[t.estado] || []).push(t); });
+    const visibles = filtro.soloEstado ? [filtro.soloEstado] : estados;
+    const abiertos = casos.filter(function (t) { return !t.cerrado; }).length;
+    $('#resumen').innerHTML =
+      '<span><b>' + casos.length + '</b>en esta vista</span><span><b>' + abiertos + '</b>abiertos</span>' +
+      '<span><b>' + r.conteo.total + '</b>folios en total</span><span><b style="color:var(--rojo)">' + r.conteo.urgentes + '</b>urgentes pendientes</span>' +
+      '<span><b style="color:var(--rojo)">' + r.conteo.vencidos + '</b>vencidos</span>' +
+      (filtro.soloEstado || filtro.soloCerrados ? '<button class="btn-link" id="verTodasCol" type="button">Ver todas las columnas</button>' : '');
+    if ($('#verTodasCol')) $('#verTodasCol').onclick = function () { filtro.soloEstado = ''; filtro.soloCerrados = false; pintar(caja, r); };
+    caja.innerHTML = '<div class="kanban">' + visibles.map(function (e) {
+      const lista = grupos[e] || [];
+      if (!CRM.esFinal(e)) lista.sort(function (a, b) {
+        const pu = (b.urgente ? 1 : 0) - (a.urgente ? 1 : 0);
+        return pu || (a.vence > b.vence ? 1 : -1);
       });
+      else lista.sort(function (a, b) { return a.actualizado < b.actualizado ? 1 : -1; });
+      return '<section class="columna" style="--c:' + CRM.colorEstado(e) + '"><header><b>' + esc(e) + '</b><span>' + lista.length + '</span></header>' +
+        '<div class="tarjetas">' + (lista.length ? lista.slice(0, POR_COLUMNA).map(tarjeta).join('') +
+          (lista.length > POR_COLUMNA ? '<p class="mas">+' + (lista.length - POR_COLUMNA) + ' más · usa la búsqueda o los filtros</p>' : '')
+          : '<p class="mas">Sin folios</p>') + '</div></section>';
+    }).join('') + '</div>';
+    CRM.$$('.tarjeta-folio', caja).forEach(function (b) { b.onclick = function () { CRM.ir('folios', { folio: b.dataset.folio }); }; });
   }
 
-  function pintarStats(c) {
-    const s = $('#stats');
-    if (!s) return;
-    const item = function (clave, valor, etiqueta, clase) {
-      return '<button type="button" class="stat ' + clase + (filtro.semaforo === clave ? ' activo' : '') + '" data-sem="' + clave + '">' +
-        '<b>' + valor + '</b><span>' + etiqueta + '</span></button>';
+  function tarjeta(t) {
+    const sem = semaforoTxt(t);
+    return '<button class="tarjeta-folio' + (t.urgente && !t.cerrado ? ' urg' : '') + '" type="button" data-folio="' + esc(t.folio) + '">' +
+      '<div class="fila1"><span class="folio">' + esc(t.folio) + '</span>' + CRM.chipPrioridad(t.prioridad) + '</div>' +
+      '<strong>' + esc(t.asunto) + '</strong>' +
+      '<div class="meta"><span>' + esc(t.cliente) + '</span><span>' + esc(t.canal) + '</span></div>' +
+      '<div class="meta"><span>👤 ' + esc(t.atendio || 'Sin asignar') + '</span>' +
+        (sem ? '<span class="sem-' + esc(t.semaforo) + '">' + esc(sem) + '</span>' : '<span>' + esc(CRM.fecha(t.actualizado, false)) + '</span>') + '</div>' +
+    '</button>';
+  }
+
+  /* ───────── selector de tipificación en 3 niveles ───────── */
+
+  function camposTip() {
+    return '<div class="rejilla tres">' +
+      '<label>Área *<select id="tArea"></select></label>' +
+      '<label>Causa *<select id="tCausa"></select></label>' +
+      '<label>Subcausa *<select id="tSub" name="motivo"></select></label></div>';
+  }
+  /** Conecta Área → Causa → Subcausa. alElegir(tip|null). */
+  function montarTip(m, actual, alElegir) {
+    const tips = CRM.st.cfg.tipificaciones || [];
+    const sA = $('#tArea', m), sC = $('#tCausa', m), sS = $('#tSub', m);
+    const ac = tips.filter(function (x) { return x.etiqueta === actual; })[0];
+    const unicos = function (arr) { const o = []; arr.forEach(function (x) { if (o.indexOf(x) < 0) o.push(x); }); return o; };
+    const llenarA = function (sel) {
+      sA.innerHTML = '<option value="">Elige el área…</option>' + unicos(tips.map(function (x) { return x.area; }))
+        .map(function (a) { return '<option' + (a === sel ? ' selected' : '') + '>' + esc(a) + '</option>'; }).join('');
     };
-    s.innerHTML = item('', c.abiertos, 'Abiertos', '') + item('vencido', c.vencidos, 'Vencidos', 'rojo') +
-      item('pronto', c.pronto, 'Por vencer', 'ambar') + '<div class="stat fijo"><b>' + c.resueltosHoy + '</b><span>Resueltos hoy</span></div>';
-    s.querySelectorAll('button.stat').forEach(function (b) {
-      b.onclick = function () {
-        filtro.semaforo = filtro.semaforo === b.dataset.sem ? '' : b.dataset.sem;
-        if (filtro.semaforo) filtro.estado = 'abiertos';
-        const sel = $('#fEstado'); if (sel) sel.value = filtro.estado;
-        cargar();
-      };
-    });
+    const llenarC = function (sel) {
+      const lista = unicos(tips.filter(function (x) { return x.area === sA.value; }).map(function (x) { return x.causa; }));
+      sC.innerHTML = '<option value="">' + (sA.value ? 'Elige la causa…' : '—') + '</option>' +
+        lista.map(function (c) { return '<option' + (c === sel ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('');
+      sC.disabled = !sA.value;
+      if (lista.length === 1 && !sel) sC.value = lista[0];
+    };
+    const llenarS = function (sel) {
+      const lista = tips.filter(function (x) { return x.area === sA.value && x.causa === sC.value; });
+      sS.innerHTML = '<option value="">' + (sC.value ? 'Elige la subcausa…' : '—') + '</option>' +
+        lista.map(function (x) { return '<option value="' + esc(x.etiqueta) + '"' + (x.etiqueta === sel ? ' selected' : '') + '>' + esc(x.sub) + '</option>'; }).join('');
+      sS.disabled = !sC.value;
+      if (lista.length === 1 && !sel) sS.value = lista[0].etiqueta;
+    };
+    const avisar = function () { alElegir(tips.filter(function (x) { return x.etiqueta === sS.value; })[0] || null); };
+    llenarA(ac ? ac.area : ''); llenarC(ac ? ac.causa : ''); llenarS(ac ? ac.etiqueta : '');
+    if (actual && !ac) {
+      sS.innerHTML = '<option value="" selected>(actual, fuera del catálogo) ' + esc(actual) + '</option>' + sS.innerHTML.replace(/^<option value="">[^<]*<\/option>/, '');
+    }
+    sA.onchange = function () { llenarC(''); llenarS(''); avisar(); };
+    sC.onchange = function () { llenarS(''); avisar(); };
+    sS.onchange = avisar;
+    return { tip: function () { return tips.filter(function (x) { return x.etiqueta === sS.value; })[0] || null; } };
   }
 
-  /* ───────── detalle ───────── */
+  /* ───────── selector de cliente (con búsqueda) ───────── */
 
-  async function detalle(cont, folio) {
-    const t = await CRM.llamar('ticketObtener', folio);
+  function campoCliente() {
+    return '<input type="hidden" name="idCliente">' +
+      '<label style="margin-bottom:4px">Cliente *</label>' +
+      '<div id="cliElegido" class="sel-cli oculto"></div>' +
+      '<div id="cliBuscar"><input id="cliQ" type="search" placeholder="Busca por nombre, teléfono, correo o número" autocomplete="off" style="margin:0 0 8px">' +
+        '<div id="cliRes" class="cli-res"></div></div>';
+  }
+  function montarCliente(m, f, inicial) {
+    let t;
+    const elegir = function (c) {
+      f.idCliente.value = c.id;
+      $('#cliElegido', m).innerHTML = '<div><strong>' + esc(c.nombre || '(sin nombre)') + '</strong><small>' + esc(c.id) + ' · ' + esc(c.telefono || c.correo || '') + '</small></div>' +
+        '<button class="btn-link" type="button" id="cliCambiar">Cambiar</button>';
+      $('#cliElegido', m).classList.remove('oculto');
+      $('#cliBuscar', m).classList.add('oculto');
+      $('#cliCambiar', m).onclick = function () {
+        $('#cliElegido', m).classList.add('oculto');
+        $('#cliBuscar', m).classList.remove('oculto');
+        $('#cliQ', m).value = ''; $('#cliRes', m).innerHTML = '';
+        $('#cliQ', m).focus();
+      };
+    };
+    const buscar = async function (q) {
+      const caja = $('#cliRes', m);
+      if (!q || q.length < 2) { caja.innerHTML = ''; return; }
+      caja.innerHTML = CRM.cargando('', true);
+      try {
+        const r = await CRM.llamar('clientesBuscar', q);
+        caja.innerHTML = r.slice(0, 6).map(function (c, i) {
+          return '<button type="button" class="cli-opcion" data-i="' + i + '"><strong>' + esc(c.nombre || '(sin nombre)') + '</strong><small>' +
+            esc(c.id) + ' · ' + esc(c.telefono) + (c.correo ? ' · ' + esc(c.correo) : '') + '</small></button>';
+        }).join('') || '<p class="ayuda">Sin resultados. Si es nuevo, primero dalo de alta en Clientes.</p>';
+        CRM.$$('.cli-opcion', caja).forEach(function (b) { b.onclick = function () { elegir(r[Number(b.dataset.i)]); }; });
+      } catch (e) { caja.innerHTML = '<p class="error">' + esc(e.message) + '</p>'; }
+    };
+    $('#cliQ', m).oninput = function (e) { clearTimeout(t); t = setTimeout(function () { buscar(e.target.value); }, 250); };
+    if (inicial && inicial.id) elegir(inicial);
+  }
+
+  /* ───────── nuevo folio ───────── */
+
+  function nuevoFolio(cliente) {
     const cfg = CRM.st.cfg;
-    const wa = CRM.waLink(t.telefono, rellenar('Hola {nombre}, te escribimos de SEGES por tu caso {folio}.', t));
+    const m = CRM.modal(
+      '<p class="eyebrow">Nuevo folio</p><h2>Registrar caso</h2>' +
+      '<form id="fFolio" novalidate>' +
+        campoCliente() +
+        camposTip() +
+        '<p class="auto-info" id="asuntoAuto">Asunto: se genera al elegir la tipificación.</p>' +
+        '<div class="rejilla">' +
+          '<label>Pedido (opcional)<input name="pedido" inputmode="numeric" maxlength="30" placeholder="Ej. 1024"></label>' +
+          '<label>Canal de atención<select name="canal">' + CRM.opciones(cfg.canales, 'WhatsApp') + '</select></label>' +
+          '<label>Medio de contacto preferido<select name="medio">' + CRM.opciones(cfg.canales, 'WhatsApp') + '</select></label>' +
+          '<label>Prioridad <small id="priAuto" style="color:var(--ayuda);font-weight:500">(automática)</small><select name="prioridad">' + CRM.opciones(cfg.prioridades, 'Normal') + '</select></label>' +
+        '</div>' +
+        '<label>Descripción del caso *<textarea name="descripcion" rows="4" maxlength="5000" placeholder="¿Qué pasó y qué pide el cliente?"></textarea></label>' +
+        '<p id="nErr" class="error"></p>' +
+        '<div class="acciones"><button class="btn" type="submit">Guardar y generar folio</button><button class="btn sec" type="button" id="nCancelar">Cancelar</button></div>' +
+      '</form>', { ancha: true, alCancelar: function () { cancelar(); } });
+    const f = $('#fFolio', m);
+    let priTocada = false, medioTocado = false;
+    f.prioridad.onchange = function () { priTocada = true; $('#priAuto', m).textContent = '(editada)'; };
+    f.medio.onchange = function () { medioTocado = true; };
+    f.canal.onchange = function () { if (!medioTocado) f.medio.value = f.canal.value; };
+    const tipCtl = montarTip(m, '', function (tip) {
+      $('#asuntoAuto', m).innerHTML = tip ? 'Asunto: <b>' + esc(tip.asunto) + '</b> (automático)' : 'Asunto: se genera al elegir la tipificación.';
+      if (tip && !priTocada && cfg.prioridades.indexOf(tip.prioridad) >= 0) f.prioridad.value = tip.prioridad;
+    });
+    montarCliente(m, f, cliente);
+    const inicial = CRM.firmaForm(f);
+    const cancelar = function () { CRM.descartar(f, inicial); };
+    $('#nCancelar', m).onclick = cancelar;
+    if (!cliente) $('#cliQ', m).focus();
+    f.onsubmit = async function (ev) {
+      ev.preventDefault();
+      const err = $('#nErr', m), btn = $('button[type=submit]', f);
+      err.textContent = '';
+      const d = CRM.datosForm(f);
+      const tip = tipCtl.tip();
+      if (!d.idCliente) { err.textContent = 'Elige el cliente.'; return; }
+      if (!tip) { err.textContent = 'Completa la tipificación (área, causa y subcausa).'; return; }
+      if (!d.descripcion.trim()) { err.textContent = 'Escribe la descripción del caso.'; return; }
+      d.asunto = tip.asunto;
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        const r = await CRM.llamar('ticketCrear', d);
+        CRM.cerrarModal();
+        CRM.aviso('Folio ' + r.folio + ' generado.');
+        CRM.ir('folios', { folio: r.folio });
+      } catch (e) { err.textContent = e.message; btn.disabled = false; btn.textContent = 'Guardar y generar folio'; }
+    };
+  }
+  CRM.nuevoFolio = nuevoFolio;
+
+  /* ───────── seguimiento del folio ───────── */
+
+  const ICONO_NOTA = { 'Nota': 'N', 'WhatsApp': 'W', 'Llamada': 'L', 'Correo enviado': '↗', 'Correo recibido': '↙', 'Sistema': '•' };
+  function claseTipo(tipo) { return 't-' + String(tipo || 'nota').toLowerCase().replace(/\s+/g, '-'); }
+
+  async function detalle(cont, folio, vigente) {
+    const t = await CRM.llamar('ticketObtener', folio);
+    if (!vigente()) return;
+    const cfg = CRM.st.cfg;
+    const jefe = CRM.esJefe();
+    const idx = cfg.estados.indexOf(t.estado);
+    const contacto = t.notas.some(function (n) { return TIPOS_CONTACTO.indexOf(n.tipo) >= 0; });
+    const wa = CRM.waLink(t.telefono, rellenar('Hola {nombre}, te escribimos de SEGES por tu folio {folio}.', t));
+    const fc = t.ficha || {};
+    const atiende = t.usuarios.indexOf(t.atendio) >= 0 || !t.atendio ? t.usuarios : [t.atendio].concat(t.usuarios);
+    let regla = '';
+    if (idx === 0 && !contacto) regla = '<div class="aviso-regla">Para pasar a «' + esc(cfg.estados[1]) + '» primero avisa al cliente (WhatsApp, llamada o correo). ' +
+      'Al registrarlo, el folio avanza solo.</div>';
+    if (t.estado === cfg.estados[cfg.estados.length - 2] && t.resuelto && cfg.estados.length > 2) {
+      const cierre = new Date(new Date(t.resuelto).getTime() + (cfg.horasCierre || 72) * 3600000).toISOString();
+      regla = '<div class="aviso-regla">Se cerrará automáticamente el ' + esc(CRM.fecha(cierre)) + ' (' + (cfg.horasCierre || 72) + ' h después de resolverse).</div>';
+    }
+    if (t.estado === cfg.estados[cfg.estados.length - 1]) regla = '<div class="aviso-regla">Folio cerrado. Si el cliente responde por correo se abre un folio nuevo.</div>';
 
     cont.innerHTML =
-      '<p><button class="btn-link" id="volver" type="button">← Casos</button></p>' +
-      '<div class="encabezado"><div><p class="eyebrow">' + esc(t.folio) + ' · ' + esc(t.canal) + '</p><h1>' + esc(t.asunto) + '</h1></div>' +
-        '<div class="chips">' + chipEstado(t) + chipSemaforo(t) + '</div></div>' +
-
-      '<div class="pasos" id="pasos">' + cfg.estados.map(function (e, i) {
-        const idx = cfg.estados.indexOf(t.estado);
-        return '<button type="button" class="paso' + (i < idx ? ' hecho' : '') + (i === idx ? ' actual' : '') + '" data-estado="' + esc(e) + '">' +
-          '<i>' + (i + 1) + '</i><span>' + esc(e) + '</span></button>';
-      }).join('') + '</div>' +
-
-      '<div class="columnas">' +
-        '<section class="panel">' +
-          '<p class="eyebrow">Datos del caso</p>' +
-          '<div class="rejilla">' +
-            dato('Cliente', '<button class="btn-link" id="irCliente" type="button">' + esc(t.cliente) + '</button>', true) +
-            dato('Teléfono', esc(t.telefono), true) + dato('Pedido', t.pedido ? '#' + esc(t.pedido) : '', true) +
-            dato('Tipificación', esc(CRM.tipNombre(t.motivo)), true) + dato('Prioridad', esc(t.prioridad), true) + dato('Atiende', esc(t.atendio), true) +
-            dato('Creado', esc(CRM.fecha(t.creado)), true) + dato('Meta de respuesta', esc(CRM.fecha(t.vence)), true) +
-            dato('Próximo contacto', esc(CRM.fecha(t.proximo, false)), true) +
-          '</div>' +
-          '<div class="acciones">' +
+      '<div class="encabezado"><div><p class="eyebrow"><button class="btn-link" id="volver" type="button">← Folios</button> · <span class="mono">' + esc(t.folio) + '</span></p>' +
+        '<h1>' + esc(t.asunto) + '</h1></div>' +
+        '<div class="acciones"><button class="btn sec" id="btnModificar" type="button">Modificar</button>' +
+        (jefe ? '<button class="btn peligro" id="btnBorrar" type="button">Eliminar</button>' : '') + '</div></div>' +
+      '<div class="barra-estado">' +
+        '<div class="pasos">' + cfg.estados.map(function (e, i) {
+          return '<span class="paso' + (i < idx ? ' hecho' : '') + (i === idx ? ' actual' : '') + '">' + esc(e) + '</span>';
+        }).join('') + '</div>' +
+        '<div class="marcar"><span>Marcar como</span><select id="selEstado">' + CRM.opciones(cfg.estados.filter(function (e) { return e !== t.estado; }), '', 'Elige…') + '</select>' +
+        '<button class="btn chico" id="btnEstado" type="button" disabled>Confirmar</button></div>' +
+      '</div>' + regla +
+      '<div class="det">' +
+        '<div>' +
+          '<div class="panel"><h2>Folio</h2><div class="datos">' +
+            CRM.dato('Folio', '<span class="mono">' + esc(t.folio) + '</span>', true) +
+            '<div class="dato"><b>Atiende</b><span>' + (jefe
+              ? '<select id="selAtiende" style="margin:0;padding:5px 8px">' + CRM.opciones(atiende, t.atendio, t.atendio ? undefined : 'Sin asignar') + '</select>'
+              : esc(t.atendio || 'Sin asignar')) + '</span></div>' +
+            CRM.dato('Prioridad', CRM.chipPrioridad(t.prioridad), true) +
+            CRM.dato('Área', t.area) + CRM.dato('Causa', t.causa) + CRM.dato('Subcausa', t.sub || CRM.tipNombre(t.motivo)) +
+            CRM.dato('Pedido', t.pedido) +
+            CRM.dato('Canal', t.canal) +
+            CRM.dato('Medio preferido', t.medio) +
+            CRM.dato('Creado', CRM.fecha(t.creado) + (t.creo ? ' · ' + t.creo : '')) +
+            (t.cerrado ? CRM.dato('Resuelto', CRM.fecha(t.resuelto)) : CRM.dato('Meta de respuesta', '<span class="' + (t.semaforo === 'vencido' ? 'falta' : '') + '">' +
+              esc(CRM.fecha(t.vence)) + ' · ' + esc(semaforoTxt(t)) + '</span>', true)) +
+            (t.proximo ? CRM.dato('Próximo contacto', CRM.fecha(t.proximo, false)) : '') +
+          '</div></div>' +
+          '<div class="panel"><div class="panel-cab"><h2>Cliente</h2><button class="btn-link" id="irCliente" type="button">Ver ficha →</button></div><div class="datos">' +
+            CRM.dato('Nombre', fc.nombre || t.cliente, false, true) +
+            CRM.dato('Número', fc.id || t.idCliente) +
+            CRM.dato('Teléfono', fc.telefono, false, true) +
+            CRM.dato('Correo', fc.correo, false, true) +
+            CRM.dato('Ciudad', fc.ciudad, false, true) +
+          '</div></div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="panel"><h2>Descripción del caso</h2>' + (t.descripcion ? '<div class="desc">' + esc(t.descripcion) + '</div>' : '<p class="ayuda">Sin descripción. Agrégala con «Modificar».</p>') + '</div>' +
+          '<div class="panel"><div class="panel-cab"><h2>Contactar al cliente</h2></div><div class="acciones" style="margin-top:0">' +
             '<button class="btn" id="btnResp" type="button">Respuesta rápida</button>' +
-            (wa ? '<a class="btn sec" id="btnWa" href="' + esc(wa) + '" target="seges_whatsapp">Abrir WhatsApp</a>' : '') +
+            (wa ? '<a class="btn wa" id="btnWa" target="seges_whatsapp" rel="noopener" href="' + esc(wa) + '">Enviar mensaje (WhatsApp)</a>' : '<button class="btn wa" type="button" disabled title="El cliente no tiene teléfono">Enviar mensaje (WhatsApp)</button>') +
             '<button class="btn sec" id="btnCorreo" type="button">Enviar correo</button>' +
-            '<button class="btn sec" id="btnEditar" type="button">Editar</button>' +
-            (CRM.esAdmin() ? '<button class="btn peligro" id="btnBorrar" type="button">Borrar</button>' : '') +
+          '</div></div>' +
+          '<div class="panel"><h2>Línea de tiempo</h2>' +
+            '<form id="fNota" class="nota-form"><select name="tipo">' + CRM.opciones(['Nota', 'Llamada', 'WhatsApp']) + '</select>' +
+              '<textarea name="texto" rows="2" placeholder="Registra una nota o el resultado de una llamada" required></textarea>' +
+              '<button class="btn" type="submit">Registrar</button></form>' +
+            lineaTiempo(t.notas) +
           '</div>' +
-        '</section>' +
-
-        '<section class="panel">' +
-          '<p class="eyebrow">Línea de tiempo</p>' +
-          '<form id="fNota" class="nota-form">' +
-            '<textarea name="texto" rows="2" placeholder="Escribe una nota, lo que dijo el cliente o lo que hiciste…" required></textarea>' +
-            '<div class="fila"><select name="tipo">' + CRM.opciones(t.tiposNota.filter(function (x) { return x !== 'Sistema'; })) + '</select>' +
-            '<button class="btn" type="submit">Agregar</button></div>' +
-          '</form>' +
-          '<ol class="linea">' + t.notas.map(function (n) {
-            return '<li class="nota tipo-' + esc(n.tipo.toLowerCase().replace(/\s+/g, '-')) + '">' +
-              '<div class="nota-cab"><span class="chip">' + esc(n.tipo) + '</span><small>' + esc(n.autor) + ' · ' + esc(CRM.fecha(n.fecha)) + '</small></div>' +
-              '<p>' + esc(n.texto).replace(/\n/g, '<br>') + '</p></li>';
-          }).join('') + '</ol>' +
-        '</section>' +
+        '</div>' +
       '</div>';
 
-    $('#volver', cont).onclick = function () { CRM.ir('tickets'); };
+    $('#volver', cont).onclick = function () { CRM.ir('folios'); };
     $('#irCliente', cont).onclick = function () { CRM.ir('clientes', { id: t.idCliente }); };
-    $('#btnEditar', cont).onclick = function () { formularioEditar(t); };
+    $('#btnModificar', cont).onclick = function () { modificar(t); };
     $('#btnResp', cont).onclick = function () { modalRespuesta(t); };
     $('#btnCorreo', cont).onclick = function () { modalCorreo(t, ''); };
     if ($('#btnWa', cont)) $('#btnWa', cont).onclick = function () {
-      CRM.llamar('ticketNota', t.folio, 'WhatsApp', 'Se abrió el chat de WhatsApp con el cliente.').catch(function () {});
+      CRM.llamar('ticketNota', t.folio, 'WhatsApp', 'Se abrió el chat de WhatsApp con el cliente.')
+        .then(function () { if (CRM.st.params.folio === t.folio) CRM.recargar(); }).catch(function () {});
     };
     if ($('#btnBorrar', cont)) $('#btnBorrar', cont).onclick = async function () {
-      if (!(await CRM.confirmar('¿Borrar el caso ' + t.folio + ' y todas sus notas? No se puede deshacer.', 'Borrar'))) return;
-      try { await CRM.llamar('ticketBorrar', t.folio); CRM.aviso('Caso borrado.'); CRM.ir('tickets'); }
+      if (!(await CRM.confirmarBorrado('el folio ' + t.folio + ' y toda su línea de tiempo'))) return;
+      try { await CRM.llamar('ticketBorrar', t.folio); CRM.aviso('Folio eliminado.'); CRM.ir('folios'); }
       catch (e) { CRM.aviso(e.message, 'mal'); }
     };
-    cont.querySelectorAll('.paso').forEach(function (b) {
-      b.onclick = async function () {
-        if (b.dataset.estado === t.estado) return;
-        b.disabled = true;
-        try {
-          await CRM.llamar('ticketActualizar', t.folio, { estado: b.dataset.estado });
-          CRM.aviso('Estado: ' + b.dataset.estado);
-          CRM.ir('tickets', { folio: t.folio });
-        } catch (e) { CRM.aviso(e.message, 'mal'); b.disabled = false; }
-      };
-    });
+    const sel = $('#selEstado', cont), bEst = $('#btnEstado', cont);
+    sel.onchange = function () { bEst.disabled = !sel.value; };
+    bEst.onclick = async function () {
+      const nuevo = sel.value;
+      if (!nuevo) return;
+      const extra = nuevo === cfg.estados[cfg.estados.length - 2] ? ' Se cerrará solo en ' + (cfg.horasCierre || 72) + ' h.' : '';
+      if (!(await CRM.confirmar('¿Marcar el folio ' + t.folio + ' como «' + nuevo + '»?' + extra, 'Sí, marcar', { peligro: false, no: 'Cancelar' }))) return;
+      bEst.disabled = true;
+      try {
+        await CRM.llamar('ticketActualizar', t.folio, { estado: nuevo });
+        CRM.aviso('Estado: ' + nuevo);
+        CRM.recargar();
+      } catch (e) { CRM.aviso(e.message, 'mal'); bEst.disabled = false; }
+    };
+    if ($('#selAtiende', cont)) $('#selAtiende', cont).onchange = async function () {
+      const s = this, nuevo = s.value;
+      if (!(await CRM.confirmar('¿Asignar el folio ' + t.folio + ' a ' + nuevo + '?', 'Asignar', { peligro: false, no: 'Cancelar' }))) { s.value = t.atendio; return; }
+      try { await CRM.llamar('ticketActualizar', t.folio, { atendio: nuevo }); CRM.aviso('Ahora atiende ' + nuevo + '.'); CRM.recargar(); }
+      catch (e) { CRM.aviso(e.message, 'mal'); s.value = t.atendio; }
+    };
     $('#fNota', cont).onsubmit = async function (ev) {
       ev.preventDefault();
       const d = CRM.datosForm(ev.target), btn = $('button[type=submit]', ev.target);
+      if (!d.texto.trim()) return;
       btn.disabled = true;
-      try { await CRM.llamar('ticketNota', t.folio, d.tipo, d.texto); CRM.ir('tickets', { folio: t.folio }); }
+      try { await CRM.llamar('ticketNota', t.folio, d.tipo, d.texto); CRM.recargar(); }
       catch (e) { CRM.aviso(e.message, 'mal'); btn.disabled = false; }
     };
   }
 
-  function dato(etiqueta, html, yaEscapado) {
-    return '<div class="dato"><b>' + esc(etiqueta) + '</b>' + (html ? (yaEscapado ? html : esc(html)) : '—') + '</div>';
+  function lineaTiempo(notas) {
+    if (!notas.length) return '<p class="vacio">Sin movimientos.</p>';
+    let html = '', dia = '';
+    const hoy = CRM.diaClave(new Date().toISOString()), ayer = CRM.diaClave(new Date(Date.now() - 86400000).toISOString());
+    notas.forEach(function (n) {
+      const d = CRM.diaClave(n.fecha);
+      if (d !== dia) {
+        if (dia) html += '</ol>';
+        dia = d;
+        const etq = d === hoy ? 'Hoy' : (d === ayer ? 'Ayer' : CRM.fecha(n.fecha, false));
+        html += '<div class="tl-dia">' + esc(etq) + '</div><ol class="tl">';
+      }
+      const hora = new Date(n.fecha).toLocaleTimeString('es-MX', { timeZone: CRM.st.cfg.zona, hour: '2-digit', minute: '2-digit' });
+      html += '<li class="' + claseTipo(n.tipo) + '"><span class="punto">' + esc(ICONO_NOTA[n.tipo] || 'N') + '</span>' +
+        '<div class="tl-cab"><b>' + esc(n.tipo) + '</b><small>' + esc(n.autor) + ' · ' + esc(hora) + '</small></div>' +
+        '<div class="tl-txt">' + esc(n.texto) + '</div></li>';
+    });
+    return html + '</ol>';
+  }
+
+  /* ───────── modificar folio ───────── */
+
+  function modificar(t) {
+    const cfg = CRM.st.cfg;
+    const prox = t.proximo ? CRM.diaClave(t.proximo) : '';
+    const m = CRM.modal(
+      '<p class="eyebrow">Modificar · ' + esc(t.folio) + '</p><h2>' + esc(t.asunto) + '</h2>' +
+      '<form id="fMod" novalidate>' +
+        campoCliente() +
+        camposTip() +
+        '<p class="auto-info" id="asuntoAuto">Asunto: <b>' + esc(t.asunto) + '</b> (automático)</p>' +
+        '<div class="rejilla">' +
+          '<label>Pedido<input name="pedido" maxlength="30" value="' + esc(t.pedido) + '"></label>' +
+          '<label>Canal de atención<select name="canal">' + CRM.opciones(cfg.canales, t.canal) + '</select></label>' +
+          '<label>Medio preferido<select name="medio">' + CRM.opciones(cfg.canales, t.medio) + '</select></label>' +
+          '<label>Prioridad<select name="prioridad">' + CRM.opciones(cfg.prioridades, t.prioridad) + '</select></label>' +
+          '<label>Próximo contacto<input name="proximo" type="date" value="' + esc(prox) + '"></label>' +
+        '</div>' +
+        '<label>Descripción del caso<textarea name="descripcion" rows="4" maxlength="5000">' + esc(t.descripcion) + '</textarea></label>' +
+        '<p id="mErr" class="error"></p>' +
+        '<div class="acciones"><button class="btn" type="submit">Guardar cambios</button><button class="btn sec" type="button" id="mCancelar">Cancelar</button></div>' +
+      '</form>', { ancha: true, alCancelar: function () { cancelar(); } });
+    const f = $('#fMod', m);
+    let priTocada = false;
+    f.prioridad.onchange = function () { priTocada = true; };
+    const tipCtl = montarTip(m, t.motivo, function (tip) {
+      $('#asuntoAuto', m).innerHTML = 'Asunto: <b>' + esc(tip ? tip.asunto : t.asunto) + '</b> (automático)';
+      if (tip && !priTocada && cfg.prioridades.indexOf(tip.prioridad) >= 0) f.prioridad.value = tip.prioridad;
+    });
+    montarCliente(m, f, { id: t.idCliente, nombre: (t.ficha && t.ficha.nombre) || t.cliente, telefono: t.telefono, correo: t.correo });
+    const inicial = CRM.firmaForm(f);
+    const cancelar = function () { CRM.descartar(f, inicial); };
+    $('#mCancelar', m).onclick = cancelar;
+    f.onsubmit = async function (ev) {
+      ev.preventDefault();
+      const err = $('#mErr', m), btn = $('button[type=submit]', f);
+      err.textContent = '';
+      const d = CRM.datosForm(f);
+      const tip = tipCtl.tip();
+      const cambios = {};
+      if (!d.idCliente) { err.textContent = 'Elige el cliente.'; return; }
+      if (d.idCliente !== t.idCliente) cambios.idCliente = d.idCliente;
+      if (tip && tip.etiqueta !== t.motivo) { cambios.motivo = tip.etiqueta; cambios.asunto = tip.asunto; }
+      ['pedido', 'canal', 'medio', 'prioridad', 'descripcion'].forEach(function (k) { if (String(d[k] || '') !== String(t[k] || '')) cambios[k] = d[k]; });
+      if (d.proximo !== prox) cambios.proximo = d.proximo;
+      if (!Object.keys(cambios).length) { CRM.cerrarModal(); CRM.aviso('Sin cambios.'); return; }
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        await CRM.llamar('ticketActualizar', t.folio, cambios);
+        CRM.cerrarModal();
+        CRM.aviso('Cambios guardados.');
+        CRM.recargar();
+      } catch (e) { err.textContent = e.message; btn.disabled = false; btn.textContent = 'Guardar cambios'; }
+    };
   }
 
   /* ───────── respuesta rápida ───────── */
 
   async function modalRespuesta(t) {
-    const m = CRM.modal('<p class="eyebrow">Respuesta rápida · ' + esc(t.folio) + '</p><p class="cargando">Cargando plantillas…</p>');
+    const m = CRM.modal('<p class="eyebrow">Respuesta rápida · ' + esc(t.folio) + '</p>' + CRM.cargando('Cargando plantillas…'));
     let lista;
     try { lista = await respuestas(); } catch (e) { m.innerHTML = '<p class="error">' + esc(e.message) + '</p>'; return; }
-    lista = lista.filter(function (r) { return r.canal === 'Todos' || r.canal === t.canal; });
+    lista = lista.filter(function (r) { return r.canal === 'Todos' || r.canal === t.canal || r.canal === 'WhatsApp'; });
     m.innerHTML =
-      '<p class="eyebrow">Respuesta rápida · ' + esc(t.folio) + '</p><h2>Enviar a ' + esc(t.cliente) + '</h2>' +
+      '<p class="eyebrow">Respuesta rápida · ' + esc(t.folio) + '</p><h2>Para ' + esc(t.cliente) + '</h2>' +
       (lista.length
         ? '<div class="plantillas">' + lista.map(function (r, i) {
             return '<button type="button" class="pill-opcion' + (i === 0 ? ' activo' : '') + '" data-i="' + i + '">' + esc(r.nombre) + '</button>';
           }).join('') + '</div>'
-        : '<p class="vacio">No hay plantillas. Créalas en la pestaña Respuestas.</p>') +
+        : '<p class="ayuda">No hay plantillas. Créalas en Respuestas.</p>') +
       '<label>Mensaje<textarea id="rTexto" rows="6"></textarea></label>' +
       '<div class="acciones">' +
-        (t.telefono ? '<a class="btn" id="rWa" target="seges_whatsapp" href="#">Enviar por WhatsApp</a>' : '') +
+        (t.telefono ? '<a class="btn wa" id="rWa" target="seges_whatsapp" rel="noopener" href="#">Enviar por WhatsApp</a>' : '') +
         '<button class="btn sec" id="rCorreo" type="button">Enviar por correo</button>' +
         '<button class="btn sec" id="rCopiar" type="button">Copiar</button>' +
         '<button class="btn sec" id="rCerrar" type="button">Cerrar</button>' +
       '</div>' +
-      '<p class="ayuda">Lo que envíes por WhatsApp o correo queda registrado en la línea de tiempo del caso.</p>';
+      '<p class="ayuda">Lo que envíes queda registrado en la línea de tiempo del folio.</p>';
     const area = $('#rTexto', m), wa = $('#rWa', m);
     const actualizar = function () { if (wa) wa.href = CRM.waLink(t.telefono, area.value); };
     const elegir = function (i) {
-      m.querySelectorAll('.pill-opcion').forEach(function (b) { b.classList.toggle('activo', Number(b.dataset.i) === i); });
+      CRM.$$('.pill-opcion', m).forEach(function (b) { b.classList.toggle('activo', Number(b.dataset.i) === i); });
       area.value = lista[i] ? rellenar(lista[i].texto, t) : '';
       actualizar();
     };
-    m.querySelectorAll('.pill-opcion').forEach(function (b) { b.onclick = function () { elegir(Number(b.dataset.i)); }; });
+    CRM.$$('.pill-opcion', m).forEach(function (b) { b.onclick = function () { elegir(Number(b.dataset.i)); }; });
     area.oninput = actualizar;
     elegir(0);
     if (wa) wa.onclick = function () {
       const texto = area.value;
       CRM.cerrarModal();
       CRM.llamar('ticketNota', t.folio, 'WhatsApp', 'Mensaje enviado: ' + texto)
-        .then(function () { CRM.ir('tickets', { folio: t.folio }); })
+        .then(function () { if (CRM.st.params.folio === t.folio) CRM.recargar(); })
         .catch(function (e) { CRM.aviso(e.message, 'mal'); });
     };
     $('#rCopiar', m).onclick = function () {
@@ -596,49 +1216,58 @@ const CRM = (function () {
 
   async function modalCorreo(t, textoInicial) {
     if (!t.correo) {
-      CRM.modal('<p class="eyebrow">Correo · ' + esc(t.folio) + '</p><h2>Falta el correo del cliente</h2>' +
+      const m0 = CRM.modal('<p class="eyebrow">Correo · ' + esc(t.folio) + '</p><h2>Falta el correo del cliente</h2>' +
         '<p>' + esc(t.cliente) + ' no tiene correo registrado. Agrégalo en su ficha y vuelve a intentar.</p>' +
         '<div class="acciones"><button class="btn" id="mIr" type="button">Ir a la ficha</button><button class="btn sec" id="mNo" type="button">Cerrar</button></div>');
-      $('#mIr').onclick = function () { CRM.cerrarModal(); CRM.ir('clientes', { id: t.idCliente }); };
-      $('#mNo').onclick = CRM.cerrarModal;
+      $('#mIr', m0).onclick = function () { CRM.cerrarModal(); CRM.ir('clientes', { id: t.idCliente }); };
+      $('#mNo', m0).onclick = CRM.cerrarModal;
       return;
     }
-    const m = CRM.modal('<p class="eyebrow">Correo · ' + esc(t.folio) + '</p><p class="cargando">Cargando plantillas…</p>');
+    const m = CRM.modal('<p class="eyebrow">Correo · ' + esc(t.folio) + '</p>' + CRM.cargando('Cargando plantillas…'), { ancha: true });
     let lista = [];
     try { lista = (await respuestas()).filter(function (r) { return r.canal === 'Todos' || r.canal === 'Correo'; }); } catch (e) {}
     m.innerHTML =
       '<p class="eyebrow">Correo · ' + esc(t.folio) + '</p><h2>Para ' + esc(t.cliente) + '</h2>' +
-      '<p class="ayuda">' + esc(t.correo) + ' · sale con el diseño de SEGES, firmado por ti; si responde, llega a ' + 'segesmx+atencion@gmail.com.</p>' +
+      '<p class="ayuda">' + esc(t.correo) + ' · sale con el diseño de SEGES, firmado por ti; si responde, llega a segesmx+atencion@gmail.com.</p>' +
       (lista.length ? '<div class="plantillas">' + lista.map(function (r, i) {
         return '<button type="button" class="pill-opcion" data-i="' + i + '">' + esc(r.nombre) + '</button>';
       }).join('') + '</div>' : '') +
       '<label>Asunto<input id="mAsunto" maxlength="150" value="' + esc(t.asunto) + '"></label>' +
-      '<label>Mensaje<textarea id="mTexto" rows="8" placeholder="Escribe tu respuesta. Deja una línea en blanco para separar párrafos. El saludo «Hola ' + esc(String(t.cliente).split(' ')[0]) + ',» y la firma se agregan solos."></textarea></label>' +
+      '<label>Mensaje<textarea id="mTexto" rows="8" placeholder="Escribe tu respuesta. El saludo «Hola ' + esc(String(t.cliente).split(' ')[0]) + ',» y la firma se agregan solos."></textarea></label>' +
       '<p id="mErr" class="error"></p>' +
       '<div class="acciones">' +
-        '<button class="btn sec" id="mVer" type="button">Vista previa</button>' +
         '<button class="btn" id="mEnviar" type="button">Enviar correo</button>' +
+        '<button class="btn sec" id="mVer" type="button">Vista previa</button>' +
         '<button class="btn sec" id="mCerrar" type="button">Cancelar</button>' +
       '</div><div id="mPrevia"></div>';
     const area = $('#mTexto', m), asunto = $('#mAsunto', m), err = $('#mErr', m);
     area.value = quitarSaludo(textoInicial || '');
-    m.querySelectorAll('.pill-opcion').forEach(function (b) {
+    const inicialTxt = area.value;
+    CRM.$$('.pill-opcion', m).forEach(function (b) {
       b.onclick = function () {
-        m.querySelectorAll('.pill-opcion').forEach(function (x) { x.classList.toggle('activo', x === b); });
+        CRM.$$('.pill-opcion', m).forEach(function (x) { x.classList.toggle('activo', x === b); });
         area.value = quitarSaludo(rellenar(lista[Number(b.dataset.i)].texto, t));
       };
     });
-    $('#mCerrar', m).onclick = CRM.cerrarModal;
+    const cancelar = async function () {
+      if (area.value !== inicialTxt) {
+        if (!(await CRM.confirmar('¿Cancelar el correo? Lo que escribiste no se guardará.', 'Sí, cancelar', { no: 'Seguir editando' }))) return;
+        if (!(await CRM.confirmar('Confírmalo otra vez: se descarta el correo.', 'Descartar', { no: 'Volver', titulo: '¿Seguro?' }))) return;
+      }
+      CRM.cerrarModal();
+    };
+    CRM.st.alCancelarModal = cancelar;
+    $('#mCerrar', m).onclick = cancelar;
     $('#mVer', m).onclick = async function () {
       err.textContent = ''; this.disabled = true;
       try {
         const r = await CRM.llamar('correoVistaPrevia', t.folio, asunto.value, area.value);
         const box = $('#mPrevia', m);
         box.innerHTML = '<p class="ayuda">Asunto: <b>' + esc(r.asunto) + '</b> · te quedan ' + esc(r.quedan) + ' correos hoy</p>';
-        const f = document.createElement('iframe');
-        f.className = 'previa-correo'; f.setAttribute('sandbox', 'allow-same-origin'); f.setAttribute('title', 'Vista previa');
-        f.srcdoc = r.html; box.appendChild(f);
-        f.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const fr = document.createElement('iframe');
+        fr.className = 'previa-correo'; fr.setAttribute('sandbox', 'allow-same-origin'); fr.setAttribute('title', 'Vista previa');
+        fr.srcdoc = r.html; box.appendChild(fr);
+        fr.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (e) { err.textContent = e.message; }
       this.disabled = false;
     };
@@ -650,192 +1279,36 @@ const CRM = (function () {
         const r = await CRM.llamar('correoEnviar', t.folio, asunto.value, area.value);
         CRM.cerrarModal();
         CRM.aviso('Correo enviado a ' + r.para + '.');
-        CRM.ir('tickets', { folio: t.folio });
+        if (CRM.st.params.folio === t.folio) CRM.recargar();
       } catch (e) { err.textContent = e.message; b.disabled = false; b.textContent = 'Enviar correo'; }
     };
   }
 
-  /** La plantilla del correo ya saluda ("Hola Nombre,"); quita un saludo repetido al inicio del texto. */
   function quitarSaludo(s) {
     const r = String(s || '').replace(/^\s*(hola|buen[oa]s? (d[ií]as|tardes|noches))\b[^,!\n]{0,40}[,!]\s*/i, '').trim();
     return r.charAt(0).toUpperCase() + r.slice(1);
   }
 
-  /* ───────── selector de tipificación (Área → Tipificación) ───────── */
-
-  function camposTip(actual) {
-    const tips = CRM.st.cfg.tipificaciones || [];
-    if (!tips.length) return '<label>Motivo<select name="motivo">' + CRM.opciones(CRM.st.cfg.motivos, actual) + '</select></label>';
-    const areas = [];
-    tips.forEach(function (x) { if (areas.indexOf(x.area) < 0) areas.push(x.area); });
-    const ac = tips.filter(function (x) { return x.etiqueta === actual; })[0];
-    return '<div class="rejilla">' +
-      '<label>Área *<select id="tArea"><option value="">Elige el área…</option>' +
-        areas.map(function (a) { return '<option' + (ac && ac.area === a ? ' selected' : '') + '>' + esc(a) + '</option>'; }).join('') +
-      '</select></label>' +
-      '<label>Tipificación *<select name="motivo" id="tTip" required></select></label></div>';
-  }
-
-  /** Conecta los selects. alElegir(tip) se llama cuando cambia la tipificación. */
-  function montarTip(m, actual, alElegir) {
-    const tips = CRM.st.cfg.tipificaciones || [];
-    const area = $('#tArea', m), sel = $('#tTip', m);
-    if (!area || !sel) return;
-    const llenar = function () {
-      const lista = tips.filter(function (x) { return x.area === area.value; });
-      let html = '<option value="">' + (area.value ? 'Elige la tipificación…' : 'Primero elige el área') + '</option>';
-      if (actual && !tips.some(function (x) { return x.etiqueta === actual; }) && !area.value)
-        html = '<option value="' + esc(actual) + '" selected>(anterior) ' + esc(CRM.tipNombre(actual)) + '</option>';
-      html += lista.map(function (x) {
-        return '<option value="' + esc(x.etiqueta) + '"' + (x.etiqueta === actual ? ' selected' : '') + '>' + esc(x.nombre) + '</option>';
-      }).join('');
-      sel.innerHTML = html;
-      sel.disabled = !area.value && !sel.value;
-    };
-    area.onchange = function () { llenar(); alElegir(null); };
-    sel.onchange = function () { alElegir(tips.filter(function (x) { return x.etiqueta === sel.value; })[0] || null); };
-    llenar();
-  }
-
-  /* ───────── nuevo caso ───────── */
-
-  async function formularioNuevo(idCliente) {
-    const cfg = CRM.st.cfg;
-    const m = CRM.modal(
-      '<p class="eyebrow">Nuevo caso</p><h2>¿Quién escribe?</h2>' +
-      '<form id="fCaso">' +
-        '<input type="hidden" name="idCliente">' +
-        '<div id="cliElegido" class="cli-elegido oculto"></div>' +
-        '<div id="cliBuscar"><input id="cliQ" type="search" placeholder="Busca por nombre, teléfono o correo" autocomplete="off">' +
-          '<div id="cliRes" class="cli-res"></div>' +
-          '<p class="ayuda">¿Es nuevo? Primero dalo de alta en Clientes.</p></div>' +
-        camposTip('') +
-        '<label>Asunto *<input name="asunto" maxlength="150" required placeholder="Se llena al elegir la tipificación"></label>' +
-        '<div class="rejilla">' +
-          '<label>Canal<select name="canal">' + CRM.opciones(cfg.canales, 'WhatsApp') + '</select></label>' +
-          '<label>Prioridad<select name="prioridad">' + CRM.opciones(cfg.prioridades, 'Normal') + '</select></label>' +
-          '<label>Pedido Tiendanube<input name="pedido" inputmode="numeric" maxlength="30" placeholder="Ej. 1024"></label>' +
-        '</div>' +
-        '<label>Próximo contacto<input name="proximo" type="date"></label>' +
-        '<label>Nota inicial<textarea name="nota" rows="3" placeholder="Lo que pidió el cliente"></textarea></label>' +
-        '<p id="cErr" class="error"></p>' +
-        '<div class="acciones"><button class="btn" type="submit">Crear caso</button><button class="btn sec" type="button" id="cCancelar">Cancelar</button></div>' +
-      '</form>');
-
-    const f = $('#fCaso', m);
-    let asuntoTocado = false;
-    f.asunto.oninput = function () { asuntoTocado = f.asunto.value.trim() !== ''; };
-    montarTip(m, '', function (tip) {
-      if (!tip) return;
-      if (!asuntoTocado) f.asunto.value = tip.asunto;
-      if (cfg.prioridades.indexOf(tip.prioridad) >= 0) f.prioridad.value = tip.prioridad;
-    });
-    const elegir = function (c) {
-      f.idCliente.value = c.id;
-      $('#cliElegido', m).innerHTML = '<div><strong>' + esc(c.nombre) + '</strong><small>' + esc(c.id) + ' · ' + esc(c.telefono || c.correo) + '</small></div>' +
-        '<button class="btn-link" type="button" id="cliCambiar">Cambiar</button>';
-      $('#cliElegido', m).classList.remove('oculto');
-      $('#cliBuscar', m).classList.add('oculto');
-      $('#cliCambiar', m).onclick = function () {
-        f.idCliente.value = '';
-        $('#cliElegido', m).classList.add('oculto');
-        $('#cliBuscar', m).classList.remove('oculto');
-        $('#cliQ', m).focus();
-      };
-    };
-    const buscar = async function (q) {
-      const caja = $('#cliRes', m);
-      if (!q || q.length < 2) { caja.innerHTML = ''; return; }
-      try {
-        const r = await CRM.llamar('clientesBuscar', q);
-        caja.innerHTML = r.slice(0, 6).map(function (c, i) {
-          return '<button type="button" class="cli-opcion" data-i="' + i + '"><strong>' + esc(c.nombre) + '</strong><small>' +
-            esc(c.telefono) + (c.correo ? ' · ' + esc(c.correo) : '') + '</small></button>';
-        }).join('') || '<p class="vacio">Sin resultados.</p>';
-        caja.querySelectorAll('.cli-opcion').forEach(function (b) { b.onclick = function () { elegir(r[Number(b.dataset.i)]); }; });
-      } catch (e) { caja.innerHTML = '<p class="error">' + esc(e.message) + '</p>'; }
-    };
-    $('#cliQ', m).oninput = function (e) { clearTimeout(temporizador); temporizador = setTimeout(function () { buscar(e.target.value); }, 250); };
-    if (idCliente) {
-      try { const c = await CRM.llamar('clientesBuscar', idCliente); if (c[0]) elegir(c[0]); } catch (e) {}
-    }
-    $('#cCancelar', m).onclick = CRM.cerrarModal;
-    f.onsubmit = async function (ev) {
-      ev.preventDefault();
-      const btn = $('button[type=submit]', f);
-      $('#cErr', m).textContent = '';
-      btn.disabled = true;
-      try {
-        const r = await CRM.llamar('ticketCrear', CRM.datosForm(f));
-        CRM.cerrarModal();
-        CRM.aviso('Caso ' + r.folio + ' creado.');
-        CRM.ir('tickets', { folio: r.folio });
-      } catch (e) { $('#cErr', m).textContent = e.message; btn.disabled = false; }
-    };
-  }
-
-  /* ───────── editar caso ───────── */
-
-  function formularioEditar(t) {
-    const cfg = CRM.st.cfg;
-    const prox = t.proximo ? t.proximo.slice(0, 10) : '';
-    const atiende = t.usuarios.indexOf(t.atendio) >= 0 ? t.usuarios : [t.atendio].concat(t.usuarios);
-    const m = CRM.modal(
-      '<p class="eyebrow">Editar · ' + esc(t.folio) + '</p><h2>' + esc(t.asunto) + '</h2>' +
-      '<form id="fEd">' +
-        camposTip(t.motivo) +
-        '<label>Asunto<input name="asunto" maxlength="150" required value="' + esc(t.asunto) + '"></label>' +
-        '<div class="rejilla">' +
-          '<label>Canal<select name="canal">' + CRM.opciones(cfg.canales, t.canal) + '</select></label>' +
-          '<label>Prioridad<select name="prioridad">' + CRM.opciones(cfg.prioridades, t.prioridad) + '</select></label>' +
-          '<label>Atiende<select name="atendio">' + CRM.opciones(atiende, t.atendio) + '</select></label>' +
-          '<label>Pedido Tiendanube<input name="pedido" maxlength="30" value="' + esc(t.pedido) + '"></label>' +
-          '<label>Próximo contacto<input name="proximo" type="date" value="' + esc(prox) + '"></label>' +
-        '</div>' +
-        '<p id="eErr" class="error"></p>' +
-        '<div class="acciones"><button class="btn" type="submit">Guardar</button><button class="btn sec" type="button" id="eCancelar">Cancelar</button></div>' +
-      '</form>');
-    const fe = $('#fEd', m);
-    const tipActual = (cfg.tipificaciones || []).filter(function (x) { return x.etiqueta === t.motivo; })[0];
-    let asuntoTocado = !tipActual || t.asunto !== tipActual.asunto;
-    fe.asunto.oninput = function () { asuntoTocado = true; };
-    montarTip(m, t.motivo, function (tip) { if (tip && !asuntoTocado) fe.asunto.value = tip.asunto; });
-    $('#eCancelar', m).onclick = CRM.cerrarModal;
-    fe.onsubmit = async function (ev) {
-      ev.preventDefault();
-      const btn = $('button[type=submit]', ev.target);
-      const d = CRM.datosForm(ev.target);
-      if (d.motivo === t.motivo || !d.motivo) delete d.motivo;   // sin cambio (o valor anterior fuera del catálogo)
-      btn.disabled = true;
-      try {
-        const r = await CRM.llamar('ticketActualizar', t.folio, d);
-        CRM.cerrarModal();
-        CRM.aviso(r.cambios ? 'Cambios guardados.' : 'Sin cambios.');
-        CRM.ir('tickets', { folio: t.folio });
-      } catch (e) { $('#eErr', m).textContent = e.message; btn.disabled = false; }
-    };
-  }
-
-  /* ───────── vista Respuestas ───────── */
+  /* ───────── Respuestas (plantillas) ───────── */
 
   CRM.registrarVista('respuestas', {
-    titulo: 'Respuestas',
-    orden: 60,
-    render: async function (cont) {
+    titulo: 'Respuestas', icono: 'r', orden: 60,
+    render: async function (cont, p, vigente) {
       const lista = await CRM.llamar('respuestasListar', true);
+      if (!vigente()) return;
       CRM.st.respuestas = null;
       cont.innerHTML =
         '<div class="encabezado"><div><p class="eyebrow">Plantillas</p><h1>Respuestas rápidas</h1></div>' +
-        '<button class="btn" id="btnNuevaResp" type="button">+ Nueva respuesta</button></div>' +
-        '<p class="ayuda">Variables: {nombre} {folio} {pedido} {motivo} (tipificación). Se reemplazan solas al usarlas en un caso.</p>' +
+        '<div class="acciones"><button class="btn" id="btnNuevaResp" type="button">+ Nueva respuesta</button></div></div>' +
+        '<p class="ayuda">Variables: {nombre} {folio} {pedido} {motivo}. Se reemplazan solas al usarlas en un folio.</p>' +
         '<div class="lista">' + (lista.length ? lista.map(function (r, i) {
           return '<button class="tarjeta" type="button" data-i="' + i + '">' +
-            '<div class="caso-arriba"><strong>' + esc(r.nombre) + '</strong><div class="chips"><span class="chip">' + esc(r.canal) + '</span>' +
+            '<div class="cab-t"><strong>' + esc(r.nombre) + '</strong><div class="chips"><span class="chip">' + esc(r.canal) + '</span>' +
             (r.activa ? '' : '<span class="chip">Inactiva</span>') + '</div></div>' +
             '<span>' + esc(r.texto) + '</span></button>';
         }).join('') : '<p class="vacio">Aún no hay respuestas.</p>') + '</div>';
       $('#btnNuevaResp', cont).onclick = function () { editarResp({ canal: 'Todos', activa: true }); };
-      cont.querySelectorAll('.tarjeta').forEach(function (b) { b.onclick = function () { editarResp(lista[Number(b.dataset.i)]); }; });
+      CRM.$$('.tarjeta', cont).forEach(function (b) { b.onclick = function () { editarResp(lista[Number(b.dataset.i)]); }; });
     }
   });
 
@@ -849,15 +1322,18 @@ const CRM = (function () {
         '<label class="check"><input type="checkbox" name="activa"' + (r.activa ? ' checked' : '') + '> Activa</label>' +
         '<p id="pErr" class="error"></p>' +
         '<div class="acciones"><button class="btn" type="submit">Guardar</button>' +
-        (r.id && CRM.esAdmin() ? '<button class="btn peligro" type="button" id="pBorrar">Borrar</button>' : '') +
+        (r.id && CRM.esJefe() ? '<button class="btn peligro" type="button" id="pBorrar">Eliminar</button>' : '') +
         '<button class="btn sec" type="button" id="pCancelar">Cancelar</button></div>' +
-      '</form>');
-    $('#pCancelar', m).onclick = CRM.cerrarModal;
+      '</form>', { alCancelar: function () { cancelar(); } });
+    const f = $('#fResp', m), inicial = CRM.firmaForm(f);
+    const cancelar = function () { CRM.descartar(f, inicial); };
+    $('#pCancelar', m).onclick = cancelar;
     if ($('#pBorrar', m)) $('#pBorrar', m).onclick = async function () {
-      try { await CRM.llamar('respuestaBorrar', r.id); CRM.cerrarModal(); CRM.aviso('Respuesta borrada.'); CRM.ir('respuestas'); }
+      if (!(await CRM.confirmarBorrado('la respuesta «' + r.nombre + '»'))) return;
+      try { await CRM.llamar('respuestaBorrar', r.id); CRM.cerrarModal(); CRM.aviso('Respuesta eliminada.'); CRM.ir('respuestas'); }
       catch (e) { $('#pErr', m).textContent = e.message; }
     };
-    $('#fResp', m).onsubmit = async function (ev) {
+    f.onsubmit = async function (ev) {
       ev.preventDefault();
       const d = CRM.datosForm(ev.target);
       d.activa = ev.target.activa.checked;
@@ -867,4 +1343,5 @@ const CRM = (function () {
     };
   }
 })();
+
 CRM.arrancar();
