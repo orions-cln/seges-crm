@@ -636,7 +636,7 @@ const CRM = (function () {
         const box = $('#mPrevia', m);
         box.innerHTML = '<p class="ayuda">Asunto: <b>' + esc(r.asunto) + '</b> · te quedan ' + esc(r.quedan) + ' correos hoy</p>';
         const f = document.createElement('iframe');
-        f.className = 'previa-correo'; f.setAttribute('sandbox', ''); f.setAttribute('title', 'Vista previa');
+        f.className = 'previa-correo'; f.setAttribute('sandbox', 'allow-same-origin'); f.setAttribute('title', 'Vista previa');
         f.srcdoc = r.html; box.appendChild(f);
         f.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (e) { err.textContent = e.message; }
