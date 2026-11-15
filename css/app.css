@@ -39,7 +39,7 @@ button { font: inherit; }
 .logo { display: flex; align-items: center; gap: 10px; min-width: calc(var(--lat) - 18px); text-decoration: none; cursor: pointer;
         background: none; border: 0; padding: 0; color: inherit; }
 .logo img { height: 28px; width: auto; display: block; }
-.logo b { font-weight: 800; letter-spacing: .08em; color: var(--ambar); font-size: 17px; }
+.logo b, .logo br { display: none; }
 .logo small { font-size: 11px; color: var(--ayuda); letter-spacing: .1em; text-transform: uppercase; }
 .buscador { position: relative; flex: 1; max-width: 560px; }
 .buscador input { width: 100%; padding: 9px 12px 9px 36px; border-radius: 999px; border: 1px solid var(--borde-2); background: var(--sup-2);
