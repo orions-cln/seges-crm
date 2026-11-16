@@ -3,26 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data: https:; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data: blob: https:; base-uri 'none'; form-action 'none'; object-src 'none'">
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="theme-color" content="#121A33">
+  <meta name="theme-color" content="#ffffff">
   <title>SEGES – Catálogo</title>
-  <link rel="stylesheet" href="../css/app.css?v=7">
-  <link rel="stylesheet" href="cat.css?v=1">
-  <script src="cat.js?v=1" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+  <link rel="stylesheet" href="cat.css?v=2">
+  <script src="cat.js?v=2" defer></script>
 </head>
 <body>
   <header class="cab">
     <button class="logo" id="irInicio" type="button" title="Inicio">
       <img src="https://dcdn-us.mitiendanube.com/stores/008/238/234/themes/common/logo-3661626092583095405-1794209267-f742198e93d8057e736cb38d152ac5b61794209267.png" alt="SEGES">
-      <span><b>SEGES</b><br><small>Catálogo</small></span>
+      <span>Catálogo</span>
     </button>
-    <div class="buscador">
-      <input id="buscaGlobal" type="search" placeholder="Buscar producto por nombre, SKU o etiqueta…" autocomplete="off" aria-label="Buscar">
-      <div id="buscaRes" class="desplegable oculto"></div>
-    </div>
+    <nav id="nav" aria-label="Secciones"></nav>
     <div class="cab-der">
+      <div class="buscador">
+        <input id="buscaGlobal" type="search" placeholder="Buscar SKU o producto" autocomplete="off" aria-label="Buscar producto">
+        <div id="buscaRes" class="desplegable oculto"></div>
+      </div>
       <a class="btn sec chico" id="irCrm" href="../" title="Ir al CRM">CRM</a>
       <div class="sesion">
         <div class="avatar" id="usrInicial"></div>
@@ -32,16 +35,16 @@
     </div>
   </header>
 
-  <nav class="lateral" id="nav"></nav>
-
   <main id="vista"></main>
 
   <section id="login" class="login oculto">
     <form id="formLogin" class="login-caja">
-      <img src="https://dcdn-us.mitiendanube.com/stores/008/238/234/themes/common/logo-3661626092583095405-1794209267-f742198e93d8057e736cb38d152ac5b61794209267.png" alt="SEGES">
-      <p class="sub">Catálogo e inventario</p>
-      <label>Correo<input name="correo" type="email" autocomplete="username" required></label>
-      <label>PIN<input name="pin" type="password" inputmode="numeric" autocomplete="current-password" required></label>
+      <div class="placa-login">
+        <img src="https://dcdn-us.mitiendanube.com/stores/008/238/234/themes/common/logo-3661626092583095405-1794209267-f742198e93d8057e736cb38d152ac5b61794209267.png" alt="SEGES">
+        <p class="sub">Catálogo e inventario</p>
+      </div>
+      <label for="lgCorreo">Correo<input id="lgCorreo" name="correo" type="email" autocomplete="username" required></label>
+      <label for="lgPin">PIN<input id="lgPin" name="pin" type="password" inputmode="numeric" autocomplete="current-password" required></label>
       <button class="btn" type="submit">Entrar</button>
       <p id="loginError" class="error"></p>
       <p class="ayuda">Usa el mismo correo y PIN del CRM. <a href="../pin.html">¿Primera vez o olvidaste tu PIN?</a></p>
