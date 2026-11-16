@@ -145,7 +145,7 @@ const CRM = (function () {
   function pintarNav() {
     const nav = $('#nav');
     nav.innerHTML = visibles().map(function (v) {
-      return '<button type="button" data-vista="' + esc(v.id) + '" title="' + esc(v.titulo) + '"><span class="ico">' + esc(v.icono || v.titulo[0].toLowerCase()) +
+      return '<button type="button" data-vista="' + esc(v.id) + '" title="' + esc(v.titulo) + '"><span class="ico">' + icono(v.id) +
         '</span><span>' + esc(v.titulo) + '</span></button>';
     }).join('') + '<div class="pie">SEGES CRM · v8</div>';
     $$('button', nav).forEach(function (b) { b.onclick = function () { ir(b.dataset.vista); }; });
