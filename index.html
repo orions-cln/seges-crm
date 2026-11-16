@@ -3,13 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data: https://dcdn-us.mitiendanube.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data: https://dcdn-us.mitiendanube.com; base-uri 'none'; form-action 'none'; object-src 'none'">
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#121A33">
   <title>SEGES – CRM</title>
-  <link rel="stylesheet" href="css/app.css?v=9">
-  <script src="js/app.js?v=9" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="css/app.css?v=10">
+  <script src="js/app.js?v=10" defer></script>
 </head>
 <body>
   <header class="cab">
@@ -17,11 +20,13 @@
       <img src="https://dcdn-us.mitiendanube.com/stores/008/238/234/themes/common/logo-3661626092583095405-1794209267-f742198e93d8057e736cb38d152ac5b61794209267.png" alt="SEGES">
       <span><b>SEGES</b><br><small>CRM</small></span>
     </button>
+    <nav id="nav" aria-label="Secciones"></nav>
+    <div class="cab-der">
     <div class="buscador">
       <input id="buscaGlobal" type="search" placeholder="Buscar cliente, folio, pedido o correo…" autocomplete="off" aria-label="Buscar">
       <div id="buscaRes" class="desplegable oculto"></div>
     </div>
-    <div class="cab-der">
+      <a class="btn sec chico" id="irCatalogo" href="catalogo/" title="Ir al Catálogo">Catálogo</a>
       <button class="campana" id="btnCampana" type="button" title="Notificaciones" aria-label="Notificaciones">🔔<span id="globo" class="globo oculto"></span></button>
       <div class="sesion">
         <div class="avatar" id="usrInicial"></div>
@@ -31,8 +36,6 @@
     </div>
     <div id="panelNotif" class="panel-notif oculto"></div>
   </header>
-
-  <nav class="lateral" id="nav"></nav>
 
   <main id="vista"></main>
 
