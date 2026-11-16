@@ -59,6 +59,7 @@ const CAT = (function () {
     op = op || {};
     st.alCancelarModal = op.alCancelar || null;
     $('#modalCaja').className = 'modal-caja' + (op.ancha ? ' ancha' : '');
+    $('#modal').classList.toggle('hoja', !!op.ancha);
     $('#modalCuerpo').innerHTML = html;
     $('#modal').classList.remove('oculto');
     return $('#modalCuerpo');
@@ -118,9 +119,9 @@ const CAT = (function () {
   function pintarNav() {
     const nav = $('#nav');
     nav.innerHTML = visibles().map(function (v) {
-      return '<button type="button" data-vista="' + esc(v.id) + '" title="' + esc(v.titulo) + '"><span class="ico">' + esc(v.icono) +
-        '</span><span>' + esc(v.titulo) + '</span></button>';
-    }).join('') + '<div class="pie"><a href="../">← Ir al CRM</a><br>SEGES Catálogo · v1</div>';
+      return '<button type="button" data-vista="' + esc(v.id) + '" title="' + esc(v.titulo) + '"><span class="t-largo">' + esc(v.titulo) +
+        '</span><span class="t-corto">' + esc(v.corto || v.titulo) + '</span></button>';
+    }).join('');
     $$('button', nav).forEach(function (b) { b.onclick = function () { ir(b.dataset.vista); }; });
   }
   function leerHash() {
@@ -287,16 +288,16 @@ const GRAF = (function () {
     const R = 54, C = 2 * Math.PI * R;
     const suma = segs.reduce(function (a, x) { return a + x.v; }, 0);
     let off = 0, s = '<svg viewBox="0 0 140 140" width="150" height="150" role="img" aria-label="' + esc(unidad) + '">' +
-      '<circle cx="70" cy="70" r="' + R + '" fill="none" stroke="#1E2849" stroke-width="20"/>';
+      '<circle cx="70" cy="70" r="' + R + '" fill="none" stroke="#f2f2f1" stroke-width="16"/>';
     segs.forEach(function (x) {
       if (!x.v || !suma) return;
       const largo = C * x.v / suma;
-      s += '<circle cx="70" cy="70" r="' + R + '" fill="none" stroke="' + x.c + '" stroke-width="20" stroke-dasharray="' + largo + ' ' + (C - largo) +
+      s += '<circle cx="70" cy="70" r="' + R + '" fill="none" stroke="' + x.c + '" stroke-width="16" stroke-dasharray="' + largo + ' ' + (C - largo) +
         '" stroke-dashoffset="' + (-off) + '" transform="rotate(-90 70 70)"><title>' + esc(x.n) + ': ' + x.v + '</title></circle>';
       off += largo;
     });
-    s += '<text x="70" y="68" text-anchor="middle" style="font-size:26px;font-weight:750;fill:#E6EAF3">' + esc(total) + '</text>' +
-      '<text x="70" y="88" text-anchor="middle">' + esc(unidad) + '</text></svg>';
+    s += '<text x="70" y="68" text-anchor="middle" style="font-size:30px;font-weight:400;fill:#0c0c0d">' + esc(total) + '</text>' +
+      '<text x="70" y="88" text-anchor="middle" style="font-size:9px;letter-spacing:.08em;fill:#6b6b6b">' + esc(String(unidad).toUpperCase()) + '</text></svg>';
     return '<div class="dona-cont">' + s + '<div class="leyenda">' + segs.map(function (x) {
       const pct = suma ? Math.round(100 * x.v / suma) : 0;
       return '<span><i style="background:' + x.c + '"></i>' + esc(x.n) + '<b>' + x.v + '</b> <small>(' + pct + '%)</small></span>';
@@ -316,8 +317,8 @@ const GRAF = (function () {
     const max = Math.max.apply(null, items.map(function (x) { return x.total; })) || 1;
     return '<div class="apiladas">' + items.map(function (x) {
       return '<div class="apilada"><span title="' + esc(x.n) + '">' + esc(x.n) + '</span><div class="pista" title="SEGES ' + x.seges + ' · Dropshipping ' + x.drop + '">' +
-        '<i style="width:' + (100 * x.seges / max) + '%;background:var(--ambar)"></i><i style="width:' + (100 * x.drop / max) + '%;background:var(--azul)"></i></div><b>' + x.total + '</b></div>';
-    }).join('') + '</div><div class="leyenda" style="margin-top:10px"><span><i style="background:var(--ambar)"></i>SEGES</span><span><i style="background:var(--azul)"></i>Dropshipping</span></div>';
+        '<i class="i-seges" style="width:' + (100 * x.seges / max) + '%"></i><i class="i-drop" style="width:' + (100 * x.drop / max) + '%"></i></div><b>' + x.total + '</b></div>';
+    }).join('') + '</div><div class="leyenda" style="margin-top:10px"><span><i class="i-seges"></i>SEGES</span><span><i class="i-drop"></i>Dropshipping</span></div>';
   }
   /** Columnas apiladas por semana (altas de productos). */
   function semanas(l) {
@@ -325,18 +326,18 @@ const GRAF = (function () {
     const max = Math.max(1, Math.max.apply(null, l.map(function (s) { return s.seges + s.drop; })));
     const paso = Math.ceil(max / 4), tope = paso * 4;
     const ancho = (W - pi) / l.length, bw = Math.min(26, ancho * 0.6);
-    let s = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Productos dados de alta por semana">';
+    let s = '<svg class="semanas" viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Productos dados de alta por semana">';
     for (let i = 0; i <= 4; i++) {
       const y = pt + (H - pt - pb) * (1 - i / 4);
-      s += '<line x1="' + pi + '" x2="' + W + '" y1="' + y + '" y2="' + y + '" stroke="#263052" stroke-width="1"/><text x="' + (pi - 6) + '" y="' + (y + 4) + '" text-anchor="end">' + (paso * i) + '</text>';
+      s += '<line x1="' + pi + '" x2="' + W + '" y1="' + y + '" y2="' + y + '" stroke="#ececec" stroke-width="1"/><text x="' + (pi - 6) + '" y="' + (y + 4) + '" text-anchor="end">' + (paso * i) + '</text>';
     }
     l.forEach(function (d, i) {
       const x = pi + ancho * i + ancho / 2;
       const alto = function (v) { return (H - pt - pb) * v / tope; };
       const hs = alto(d.seges), hd = alto(d.drop);
       const et = d.semana.slice(8) + '/' + d.semana.slice(5, 7);
-      s += '<rect x="' + (x - bw / 2) + '" y="' + (H - pb - hs) + '" width="' + bw + '" height="' + hs + '" fill="#E8A33D"><title>Semana del ' + et + ': ' + d.seges + ' SEGES</title></rect>' +
-        '<rect x="' + (x - bw / 2) + '" y="' + (H - pb - hs - hd) + '" width="' + bw + '" height="' + hd + '" fill="#6E9BE8"><title>Semana del ' + et + ': ' + d.drop + ' Dropshipping</title></rect>';
+      s += '<rect x="' + (x - bw / 2) + '" y="' + (H - pb - hs) + '" width="' + bw + '" height="' + hs + '" fill="#0c0c0d"><title>Semana del ' + et + ': ' + d.seges + ' SEGES</title></rect>' +
+        '<rect x="' + (x - bw / 2) + '" y="' + (H - pb - hs - hd) + '" width="' + bw + '" height="' + hd + '" fill="#9a9a9a"><title>Semana del ' + et + ': ' + d.drop + ' Dropshipping</title></rect>';
       if (i % 2 === 1 || l.length <= 8) s += '<text x="' + x + '" y="' + (H - 6) + '" text-anchor="middle">' + et + '</text>';
     });
     return s + '</svg>';
@@ -390,29 +391,29 @@ const GRAF = (function () {
         '<div class="encabezado"><div><p class="eyebrow">Panel del catálogo</p><h1>Inicio</h1></div>' +
         '<div class="acciones"><button class="btn sec" id="btnRec" type="button">Actualizar</button><button class="btn" id="btnNuevoP" type="button">+ Nuevo producto</button></div></div>' +
         '<div class="kpis">' +
-          kpi('todos', t.total, 'Productos en catálogo', 'var(--ambar)') +
-          kpi('activos', t.activos, 'Activos', 'var(--verde)') +
-          kpi('visibles', t.visibles, 'Publicados en la tienda', 'var(--turq)') +
-          kpi('pendientes', t.pendientes, 'Cambios por enviar', 'var(--violeta)') +
-          kpi('sinFoto', t.sinFoto, 'Sin foto', 'var(--azul)') +
+          kpi('todos', t.total, 'Productos en catálogo', 'var(--carbon)') +
+          kpi('visibles', t.visibles, 'Publicados en la tienda', 'var(--verde)') +
+          kpi('pendientes', t.pendientes, 'Cambios por enviar', 'var(--ambar)') +
+          kpi('inventario', CAT.dinero(t.valorCosto), 'Inventario SEGES a costo · ' + t.unidades + ' pzas', 'var(--carbon)') +
+          kpi('sinFoto', t.sinFoto, 'Sin foto', 'var(--concreto)') +
           kpi('stockBajo', t.stockBajo, 'Stock bajo (SEGES)', 'var(--ambar)') +
           kpi('perdida', t.perdida, 'Venden con pérdida', 'var(--rojo)') +
-          kpi('inventario', CAT.dinero(t.valorCosto), 'Inventario SEGES a costo (' + t.unidades + ' pzas)', 'var(--verde)') +
+          kpi('activos', t.activos, 'Activos', 'var(--verde)') +
         '</div>' +
         '<div class="graficas">' +
           '<div class="panel"><div class="panel-cab"><h3>Productos por categoría</h3><small class="ayuda">' + r.porCategoria.length + ' categorías</small></div>' + GRAF.apiladas(r.porCategoria) + '</div>' +
           '<div class="panel"><div class="panel-cab"><h3>SEGES vs Dropshipping</h3></div>' +
-            GRAF.dona([{ n: 'SEGES', v: t.seges, c: '#E8A33D' }, { n: 'Dropshipping', v: t.drop, c: '#6E9BE8' }], t.total, 'productos') + '</div>' +
+            GRAF.dona([{ n: 'SEGES', v: t.seges, c: '#0c0c0d' }, { n: 'Dropshipping', v: t.drop, c: '#9a9a9a' }], t.total, 'productos') + '</div>' +
           '<div class="panel"><div class="panel-cab"><h3>Altas por semana</h3><small class="ayuda">Últimas 12 semanas</small></div>' + GRAF.semanas(r.semanas) +
-            '<div class="leyenda"><span><i style="background:var(--ambar)"></i>SEGES</span><span><i style="background:var(--azul)"></i>Dropshipping</span></div></div>' +
+            '<div class="leyenda"><span><i class="i-seges"></i>SEGES</span><span><i class="i-drop"></i>Dropshipping</span></div></div>' +
           '<div class="panel"><div class="panel-cab"><h3>Estado del catálogo</h3></div>' +
-            GRAF.dona(['Activo', 'Borrador', 'Pausado', 'Descontinuado'].map(function (e, i) { return { n: e, v: est[e] || 0, c: ['#3FB984', '#8F99B3', '#E8A33D', '#E5675A'][i] }; }), t.total, 'productos') + '</div>' +
+            GRAF.dona(['Activo', 'Borrador', 'Pausado', 'Descontinuado'].map(function (e, i) { return { n: e, v: est[e] || 0, c: ['#23825a', '#cacaca', '#e8a33d', '#c8402c'][i] }; }), t.total, 'productos') + '</div>' +
           '<div class="panel"><div class="panel-cab"><h3>Ganancia promedio por categoría</h3><small class="ayuda">Por venta, después de costo y envío</small></div>' +
             GRAF.barrasH(r.porCategoria.filter(function (c) { return c.gananciaProm !== ''; }).map(function (c) {
-              return { n: c.n, v: c.gananciaProm, c: c.gananciaProm < 0 ? 'var(--rojo)' : 'var(--verde)' };
+              return { n: c.n, v: c.gananciaProm, c: c.gananciaProm < 0 ? 'var(--rojo)' : 'var(--carbon)' };
             }), CAT.dinero) + '</div>' +
           '<div class="panel"><div class="panel-cab"><h3>Productos por proveedor</h3></div>' +
-            GRAF.barrasH(r.porProveedor.map(function (x) { return { n: x.n, v: x.v, c: 'var(--turq)' }; })) + '</div>' +
+            GRAF.barrasH(r.porProveedor.map(function (x) { return { n: x.n, v: x.v, c: 'var(--carbon)' }; })) + '</div>' +
           '<div class="panel"><div class="panel-cab"><h3>Mayor ganancia por venta</h3></div>' + lista(r.mejores, function (x) { return CAT.ganancia(x.ganancia); }) + '</div>' +
           '<div class="panel"><div class="panel-cab"><h3>Menor ganancia por venta</h3></div>' + lista(r.peores, function (x) { return CAT.ganancia(x.ganancia); }) + '</div>' +
           '<div class="panel"><div class="panel-cab"><h3>Alertas</h3></div>' +
@@ -552,14 +553,14 @@ const GRAF = (function () {
     } else {
       caja.innerHTML = '<div class="prod-grid">' + visibles.map(function (p) {
         const e = CAT.estadoTn(p), f = CAT.url(p.fotos[0]);
+        const marca = p.estado !== 'Activo' ? p.estado : (p.pendiente ? 'Por enviar' : '');
         return '<button class="prod" type="button" data-sku="' + esc(p.sku) + '"><div class="foto">' +
           (f ? '<img loading="lazy" alt="" src="' + esc(f) + '">' : 'Sin foto') +
-          '<div class="chips"><span class="chip solido ' + (p.tipo === 'SEGES' ? 'seges' : 'drop') + '">' + esc(p.tipo === 'SEGES' ? 'SEGES' : 'Drop') + '</span>' +
-          (p.estado !== 'Activo' ? '<span class="chip solido">' + esc(p.estado) + '</span>' : '') + '</div></div>' +
+          (marca ? '<div class="chips"><span class="chip solido">' + esc(marca) + '</span></div>' : '') + '</div>' +
           '<div class="cuerpo"><span class="sku">' + esc(p.sku) + ' · ' + esc(p.categoria) + '</span><strong>' + esc(p.nombre) + '</strong>' +
           '<div class="precios"><b>' + esc(CAT.dinero(p.promo !== '' ? p.promo : p.precio)) + '</b>' + CAT.ganancia(p.ganancia) + '</div>' +
-          '<div class="meta"><span>' + (p.tipo === 'SEGES' ? 'Stock ' + esc(p.stock === '' ? 0 : p.stock) : 'Stock ∞') + (p.stockBajo ? ' ⚠' : '') + '</span>' +
-          '<span><span class="punto-tn ' + e.c + '" title="' + esc(e.t) + '"></span></span></div></div></button>';
+          '<div class="meta"><span>' + (p.tipo === 'SEGES' ? 'SEGES · ' + esc(p.stock === '' ? 0 : p.stock) + ' pzas' + (p.stockBajo ? ' · bajo' : '') : 'Dropshipping') + '</span>' +
+          '<span class="punto-tn ' + e.c + '" title="' + esc(e.t) + '"></span></div></div></button>';
       }).join('') + '</div>';
       CAT.$$('.prod', caja).forEach(function (b) { b.onclick = function () { CAT.ir('productos', { id: b.dataset.sku }); }; });
     }
@@ -618,7 +619,7 @@ const GRAF = (function () {
             CAT.dato('Publicar', p.publicar === 'SI' ? 'Sí (si está Activo y tiene foto)' : 'No') +
             CAT.dato('Último envío', p.sync ? CAT.fecha(p.sync) : '') + CAT.dato('Resultado', p.resultado) + '</div>' +
           '<div class="acciones">' +
-            (puede.tienda && CAT.st.cat.tienda ? '<button class="btn" id="btnEnviar" type="button">' + (p.enTienda ? 'Enviar cambios' : 'Crear en Tiendanube') + '</button>' : '') +
+            (puede.tienda && CAT.st.cat.tienda ? '<button class="btn' + (p.pendiente ? ' ambar' : '') + '" id="btnEnviar" type="button">' + (p.enTienda ? 'Enviar cambios' : 'Crear en Tiendanube') + '</button>' : '') +
             (p.tnUrl ? '<a class="btn sec" href="' + esc(CAT.url(p.tnUrl)) + '" target="_blank" rel="noopener">Ver en Tiendanube</a>' : '') +
           '</div>' + (!CAT.st.cat.tienda ? '<p class="ayuda">El catálogo aún no está conectado a Tiendanube.</p>' : '') + '</div>' +
         '<div class="panel"><div class="panel-cab"><h3>Precios y ganancia</h3></div><div class="cifras">' +
@@ -764,6 +765,10 @@ const GRAF = (function () {
       '</div>' +
       '<label class="check"><input type="checkbox" name="publicar"' + (p.publicar !== 'NO' ? ' checked' : '') + ' style="accent-color:var(--ambar)"> Publicar en Tiendanube (solo si está Activo y tiene foto)</label>' +
       (nuevo ? '<label>SKU<input name="sku" maxlength="20" placeholder="Automático (ej. HO20001)" style="text-transform:uppercase"></label>' : '') +
+      '<div class="seccion-form"><h3>Fotos</h3><div class="subir-fotos"><div class="fila"><span id="fotosTxt">' +
+        (c.tienda ? ((p.fotos || []).length ? 'Ya tiene ' + p.fotos.length + ' foto(s). Puedes agregar más; se suben a Tiendanube al guardar.' : 'Elige hasta 10 fotos. Se suben a Tiendanube al guardar.') : 'Conecta Tiendanube en Ajustes para subir fotos.') + '</span>' +
+        '<button class="btn sec chico" type="button" id="elegirFotos"' + (c.tienda && (p.fotos || []).length < 10 ? '' : ' disabled') + '>Elegir fotos</button></div>' +
+        '<div class="previas" id="previas"></div><input type="file" id="fotosNuevas" accept="image/*" multiple class="oculto"></div></div>' +
       '<div class="seccion-form"><h3>Precios</h3><div class="rejilla">' +
         '<label>Costo proveedor<input name="costo" inputmode="decimal" value="' + v(p.costo) + '" placeholder="$"></label>' +
         '<label>Envío estimado<input name="envio" inputmode="decimal" value="' + v(p.envio) + '" placeholder="$"></label>' +
@@ -793,8 +798,17 @@ const GRAF = (function () {
       '<div class="acciones"><button class="btn" type="submit">Guardar</button><button class="btn sec" type="button" id="cancProd">Cancelar</button></div></form>',
       { ancha: true });
     const f = $('#fProd', m);
+    let porSubir = [];
+    const maxF = 10 - (p.fotos || []).length;
+    $('#elegirFotos', m).onclick = function () { $('#fotosNuevas', m).click(); };
+    $('#fotosNuevas', m).onchange = function () {
+      porSubir = porSubir.concat(Array.prototype.slice.call(this.files || []).filter(function (a) { return /^image\//.test(a.type); })).slice(0, maxF);
+      this.value = '';
+      $('#previas', m).innerHTML = porSubir.map(function (a) { return '<img alt="" src="' + URL.createObjectURL(a) + '">'; }).join('');
+      $('#fotosTxt', m).textContent = porSubir.length + ' foto(s) lista(s). Se suben al guardar.';
+    };
     const inicial = CAT.firmaForm(f);
-    const cancelar = function () { CAT.descartar(f, inicial); };
+    const cancelar = function () { CAT.descartar(f, porSubir.length ? '' : inicial); };
     CAT.st.alCancelarModal = cancelar;
     $('#cancProd', m).onclick = cancelar;
     const calc = function () {
@@ -802,9 +816,9 @@ const GRAF = (function () {
       const costo = n('costo'), envio = n('envio') || 0, precio = n('precio'), promo = n('promo'), wa = n('precioWa');
       const venta = promo !== null && precio !== null && promo < precio ? promo : precio;
       const g = costo !== null && venta !== null ? venta - costo - envio : null, gw = costo !== null && wa !== null ? wa - costo - envio : null;
-      $('#vistaGan', m).innerHTML = '<span>Ganancia tienda:<b>' + (g === null || isNaN(g) ? '—' : CAT.ganancia(Math.round(g * 100) / 100)) + '</b></span>' +
-        (g !== null && venta ? '<span>Margen:<b>' + Math.round(1000 * g / venta) / 10 + '%</b></span>' : '') +
-        '<span>Ganancia WhatsApp:<b>' + (gw === null || isNaN(gw) ? '—' : CAT.ganancia(Math.round(gw * 100) / 100)) + '</b></span>';
+      $('#vistaGan', m).innerHTML = '<span>Ganancia tienda<b>' + (g === null || isNaN(g) ? '—' : CAT.ganancia(Math.round(g * 100) / 100)) + '</b></span>' +
+        (g !== null && venta ? '<span>Margen<b>' + Math.round(1000 * g / venta) / 10 + '%</b></span>' : '') +
+        '<span>Ganancia WhatsApp<b>' + (gw === null || isNaN(gw) ? '—' : CAT.ganancia(Math.round(gw * 100) / 100)) + '</b></span>';
     };
     ['costo', 'envio', 'precio', 'promo', 'precioWa'].forEach(function (k) { f[k].oninput = calc; });
     calc();
@@ -830,8 +844,14 @@ const GRAF = (function () {
       b.disabled = true; b.textContent = 'Guardando…';
       try {
         const r = await CAT.llamar('catProductoGuardar', d);
+        let errF = 0;
+        for (let i = 0; i < porSubir.length; i++) {
+          b.textContent = 'Subiendo foto ' + (i + 1) + ' de ' + porSubir.length + '…';
+          try { await CAT.llamar('catFotoSubir', r.sku, await comprimir(porSubir[i]), r.sku + '_' + Date.now() + '.jpg'); }
+          catch (e2) { errF++; }
+        }
         CAT.cerrarModal(); CAT.olvidarProductos();
-        CAT.aviso((nuevo ? 'Producto creado: ' : 'Guardado: ') + r.sku, 'ok');
+        CAT.aviso((nuevo ? 'Producto creado: ' : 'Guardado: ') + r.sku + (errF ? ' · ' + errF + ' foto(s) no se subieron; agrégalas en la ficha.' : ''), errF ? 'mal' : 'ok');
         CAT.ir('productos', { id: r.sku });
       } catch (e) { $('#errProd', m).textContent = e.message; b.disabled = false; b.textContent = 'Guardar'; }
     };
@@ -842,7 +862,7 @@ const GRAF = (function () {
 (function () {
   const $ = CAT.$, esc = CAT.esc;
   CAT.registrarVista('inventario', {
-    titulo: 'Inventario', icono: 's', orden: 30,
+    titulo: 'Inventario', corto: 'Stock', icono: 's', orden: 30,
     render: async function (cont, p, vigente) {
       cont.innerHTML = '<div class="encabezado"><div><p class="eyebrow">Productos SEGES</p><h1>Inventario</h1></div>' +
         '<div class="acciones"><button class="btn" id="btnMovN" type="button">+ Movimiento</button></div></div>' +
@@ -898,7 +918,7 @@ const GRAF = (function () {
 (function () {
   const $ = CAT.$, esc = CAT.esc;
   CAT.registrarVista('proveedores', {
-    titulo: 'Proveedores', icono: 'v', orden: 40,
+    titulo: 'Proveedores', corto: 'Prov.', icono: 'v', orden: 40,
     render: async function (cont, p, vigente) {
       const l = await CAT.llamar('catProveedores');
       if (!vigente()) return;
