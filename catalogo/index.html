@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data: https:; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#121A33">
+  <title>SEGES – Catálogo</title>
+  <link rel="stylesheet" href="../css/app.css?v=7">
+  <link rel="stylesheet" href="cat.css?v=1">
+  <script src="cat.js?v=1" defer></script>
+</head>
+<body>
+  <header class="cab">
+    <button class="logo" id="irInicio" type="button" title="Inicio">
+      <img src="https://dcdn-us.mitiendanube.com/stores/008/238/234/themes/common/logo-3661626092583095405-1794209267-f742198e93d8057e736cb38d152ac5b61794209267.png" alt="SEGES">
+      <span><b>SEGES</b><br><small>Catálogo</small></span>
+    </button>
+    <div class="buscador">
+      <input id="buscaGlobal" type="search" placeholder="Buscar producto por nombre, SKU o etiqueta…" autocomplete="off" aria-label="Buscar">
+      <div id="buscaRes" class="desplegable oculto"></div>
+    </div>
+    <div class="cab-der">
+      <a class="btn sec chico" id="irCrm" href="../" title="Ir al CRM">CRM</a>
+      <div class="sesion">
+        <div class="avatar" id="usrInicial"></div>
+        <div class="sesion-txt"><span id="usrNombre"></span><small id="usrRol"></small></div>
+        <button id="btnSalir" class="btn sec chico" type="button">Salir</button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="lateral" id="nav"></nav>
+
+  <main id="vista"></main>
+
+  <section id="login" class="login oculto">
+    <form id="formLogin" class="login-caja">
+      <img src="https://dcdn-us.mitiendanube.com/stores/008/238/234/themes/common/logo-3661626092583095405-1794209267-f742198e93d8057e736cb38d152ac5b61794209267.png" alt="SEGES">
+      <p class="sub">Catálogo e inventario</p>
+      <label>Correo<input name="correo" type="email" autocomplete="username" required></label>
+      <label>PIN<input name="pin" type="password" inputmode="numeric" autocomplete="current-password" required></label>
+      <button class="btn" type="submit">Entrar</button>
+      <p id="loginError" class="error"></p>
+      <p class="ayuda">Usa el mismo correo y PIN del CRM. <a href="../pin.html">¿Primera vez o olvidaste tu PIN?</a></p>
+    </form>
+  </section>
+
+  <div id="modal" class="modal oculto"><div class="modal-caja" id="modalCaja"><div id="modalCuerpo"></div></div></div>
+  <div id="confirma" class="confirma oculto"><div class="modal-caja"><div id="confirmaCuerpo"></div></div></div>
+  <div id="aviso" class="aviso oculto" role="status"></div>
+  <noscript><p class="sin-js">Activa JavaScript para usar el catálogo.</p></noscript>
+</body>
+</html>
