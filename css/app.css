@@ -84,8 +84,8 @@ button { font: inherit; }
                   background: none; color: var(--suave); cursor: pointer; font-weight: 600; font-size: 14px; text-align: left; }
 .lateral button:hover { background: var(--sup-2); color: var(--texto); }
 .lateral button.activo { background: var(--sup-3); color: var(--texto); box-shadow: inset 3px 0 0 var(--ambar); }
-.lateral .ico { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: var(--sup-2);
-                border: 1px solid var(--borde-2); font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--ambar); }
+.lateral .ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--sup-2);
+                border: 1px solid var(--borde-2); color: var(--ambar); flex-shrink: 0; }
 .lateral button.activo .ico { background: var(--ambar); color: #1B1306; border-color: var(--ambar); }
 .lateral .pie { margin-top: auto; font-size: 11px; color: var(--ayuda); padding: 0 12px; }
 
@@ -356,3 +356,4 @@ td small { color: var(--ayuda); display: block; }
 .pedido .acciones { margin-top: 0; }
 .pasos-txt { margin: 0; padding-left: 20px; display: grid; gap: 8px; font-size: 14px; color: var(--suave); }
 .det > .panel + .panel { margin-top: 0; }
+.lateral .ico svg { display: block; }
