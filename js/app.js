@@ -126,7 +126,7 @@ const CRM = (function () {
   function esAdmin() { return !!(st.usuario && st.usuario.rol === 'admin'); }
   function esJefe() { return !!(st.usuario && (st.usuario.rol === 'admin' || st.usuario.rol === 'supervisor')); }
   function visibles() {
-    return st.vistas.filter(function (v) { return !v.soloJefe || esJefe(); })
+    return st.vistas.filter(function (v) { return (!v.soloJefe || esJefe()) && (!v.soloAdmin || esAdmin()); })
                     .sort(function (a, b) { return a.orden - b.orden; });
   }
   function pintarNav() {
@@ -134,7 +134,7 @@ const CRM = (function () {
     nav.innerHTML = visibles().map(function (v) {
       return '<button type="button" data-vista="' + esc(v.id) + '" title="' + esc(v.titulo) + '"><span class="ico">' + esc(v.icono || v.titulo[0].toLowerCase()) +
         '</span><span>' + esc(v.titulo) + '</span></button>';
-    }).join('') + '<div class="pie">SEGES CRM · v6</div>';
+    }).join('') + '<div class="pie">SEGES CRM · v7</div>';
     $$('button', nav).forEach(function (b) { b.onclick = function () { ir(b.dataset.vista); }; });
   }
 
@@ -255,6 +255,43 @@ const CRM = (function () {
     const i = ((st.cfg && st.cfg.estados) || []).indexOf(e);
     return COLOR_ESTADO[i >= 0 ? i % COLOR_ESTADO.length : 0];
   }
+  /* ───────── Tiendanube ───────── */
+  function tnActivo() { return !!(st.cfg && st.cfg.tienda); }
+  function dinero(v, moneda) {
+    const n = Number(v);
+    if (isNaN(n) || v === '') return '';
+    return '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (moneda && moneda !== 'MXN' ? ' ' + moneda : '');
+  }
+  /** Tarjeta de un pedido de Tiendanube. opciones: { compacto, asignar } */
+  function pedidoHtml(p, opciones) {
+    opciones = opciones || {};
+    const cPago = p.pagado ? 'ok' : (/reembols|anulad|contracargo|vencid|abandon/i.test(p.pago) ? 'mal' : 'alerta');
+    const cEnvio = p.enviado ? 'ok' : (p.cancelado ? '' : 'alerta');
+    const chips = '<div class="chips">' + (p.cancelado ? '<span class="chip mal">Cancelado</span>' : '') +
+      '<span class="chip ' + cPago + '">' + esc(p.pago || 'Pago —') + '</span>' +
+      '<span class="chip ' + cEnvio + '">' + esc(p.envio || 'Envío —') + '</span></div>';
+    const cab = '<div class="ped-cab"><b>Pedido #' + esc(p.numero) + '</b><span>' + esc(fecha(p.fecha)) + '</span><b>' + esc(dinero(p.total, p.moneda)) + '</b></div>';
+    if (opciones.compacto) {
+      return '<div class="pedido compacto">' + cab + chips +
+        '<small>' + esc(p.productos.map(function (x) { return x.cantidad + ' × ' + x.nombre; }).join(', ')) + '</small>' +
+        '<div class="acciones" style="margin-top:6px">' +
+          (opciones.asignar ? '<button class="btn chico" type="button" data-asignar="' + esc(p.numero) + '">Asignar a este folio</button>' : '') +
+          '<a class="btn sec chico" href="' + esc(p.url) + '" target="_blank" rel="noopener">Ver en Tiendanube</a></div></div>';
+    }
+    return '<div class="pedido">' + cab + chips +
+      '<ul class="ped-productos">' + p.productos.map(function (x) {
+        return '<li><span>' + x.cantidad + ' × ' + esc(x.nombre) + '</span><span>' + esc(dinero(x.precio, p.moneda)) + '</span></li>';
+      }).join('') + '</ul>' +
+      '<div class="datos">' +
+        dato('Comprador', [p.nombre, p.correo, p.telefono].filter(String).join(' · ')) +
+        (p.paqueteria ? dato('Envío', p.paqueteria + (p.ciudad ? ' · ' + p.ciudad : '')) : (p.ciudad ? dato('Ciudad', p.ciudad) : '')) +
+        dato('Guía', p.guia ? (p.guiaUrl ? '<a href="' + esc(p.guiaUrl) + '" target="_blank" rel="noopener">' + esc(p.guia) + '</a>' : esc(p.guia)) : '', true) +
+        (p.fechaPago ? dato('Pagado', fecha(p.fechaPago)) : '') +
+        (p.fechaCancelado ? dato('Cancelado', fecha(p.fechaCancelado)) : '') +
+      '</div>' +
+      '<div class="acciones"><a class="btn sec chico" href="' + esc(p.url) + '" target="_blank" rel="noopener">Ver en Tiendanube</a></div></div>';
+  }
+
   function esFinal(e) {
     const es = (st.cfg && st.cfg.estados) || [];
     return es.slice(es.length > 2 ? -2 : -1).indexOf(e) >= 0;
@@ -319,7 +356,8 @@ const CRM = (function () {
            confirmar: confirmar, descartar: descartar, firmaForm: firmaForm, confirmarBorrado: confirmarBorrado,
            registrarVista: registrarVista, hayVista: hayVista, ir: ir, recargar: recargar, esAdmin: esAdmin, esJefe: esJefe,
            fecha: fecha, diaClave: diaClave, hace: hace, waLink: waLink, datosForm: datosForm, opciones: opciones, tipNombre: tipNombre,
-           chipPrioridad: chipPrioridad, chipEstado: chipEstado, colorEstado: colorEstado, esFinal: esFinal, dato: dato, arrancar: arrancar };
+           chipPrioridad: chipPrioridad, chipEstado: chipEstado, colorEstado: colorEstado, esFinal: esFinal, dato: dato, arrancar: arrancar,
+           tnActivo: tnActivo, dinero: dinero, pedidoHtml: pedidoHtml };
 })();
 
 /* ═════════════ Buscador general y notificaciones (cabecera) ═════════════ */
@@ -345,14 +383,43 @@ const CRM = (function () {
         return '<button class="res-item" type="button" data-folio="' + esc(t.folio) + '"><span><span class="mono">' + esc(t.folio) + '</span> · ' + esc(t.asunto) +
           '</span><small>' + esc(t.cliente) + ' · ' + esc(t.estado) + '</small></button>';
       }).join('');
-      caja.innerHTML = html || '<p class="vacio">Sin resultados para «' + esc(q) + '».</p>';
-      CRM.$$('.res-item', caja).forEach(function (b) {
-        b.onclick = function () {
-          cerrarBusca(); $('#buscaGlobal').value = '';
-          if (b.dataset.cli) CRM.ir('clientes', { id: b.dataset.cli }); else CRM.ir('folios', { folio: b.dataset.folio });
-        };
-      });
+      const conTn = CRM.tnActivo() && q.trim().length >= 3;
+      caja.innerHTML = (html || (conTn ? '' : '<p class="vacio">Sin resultados para «' + esc(q) + '».</p>')) +
+        (conTn ? '<div id="buscaTn"><h4>En Tiendanube</h4>' + CRM.cargando('', true) + '</div>' : '');
+      enlazar(caja);
+      if (!conTn) return;
+      let tn = [];
+      try { tn = await CRM.llamar('tnBuscarClientes', q); } catch (e) { tn = null; }
+      const box = $('#buscaTn', caja);
+      if (!box || $('#buscaGlobal').value !== q) return;
+      const ya = r.clientes.map(function (c) { return c.id; });
+      const fallo = tn === null;
+      tn = (tn || []).filter(function (x) { return ya.indexOf(x.idCrm) < 0; });
+      box.innerHTML = fallo ? '<p class="ayuda" style="padding:0 10px">No pude consultar Tiendanube.</p>' : '<h4>En Tiendanube</h4>' + (tn.length ? tn.map(function (x) {
+        return '<button class="res-item" type="button" ' + (x.idCrm ? 'data-cli="' + esc(x.idCrm) + '"' : 'data-tn="' + esc(x.tnId) + '"') + '><span>' +
+          esc(x.nombre || x.correo) + '</span><small>' + (x.idCrm ? 'Ya en el CRM · ' + esc(x.idCrm) : 'Importar · ' + esc(x.correo || x.telefono)) + '</small></button>';
+      }).join('') : '<p class="ayuda" style="padding:0 10px">Sin coincidencias en la tienda.</p>');
+      if (!html && !tn.length) box.insertAdjacentHTML('beforebegin', '<p class="vacio">Sin resultados para «' + esc(q) + '».</p>');
+      enlazar(box);
     } catch (e) { caja.innerHTML = '<p class="error" style="padding:10px">' + esc(e.message) + '</p>'; }
+  }
+  function enlazar(cont) {
+    CRM.$$('.res-item', cont).forEach(function (b) {
+      b.onclick = async function () {
+        if (b.dataset.tn) {
+          b.disabled = true; b.querySelector('small').textContent = 'Importando…';
+          try {
+            const r = await CRM.llamar('tnImportarCliente', b.dataset.tn);
+            CRM.aviso(r.nuevo ? 'Cliente ' + r.id + ' importado de Tiendanube.' : 'Ya existía como ' + r.id + '.');
+            cerrarBusca(); $('#buscaGlobal').value = '';
+            CRM.ir('clientes', { id: r.id });
+          } catch (e) { CRM.aviso(e.message, 'mal'); b.disabled = false; }
+          return;
+        }
+        cerrarBusca(); $('#buscaGlobal').value = '';
+        if (b.dataset.cli) CRM.ir('clientes', { id: b.dataset.cli }); else CRM.ir('folios', { folio: b.dataset.folio });
+      };
+    });
   }
 
   /* Notificaciones: se calculan en el servidor; "leído" se guarda en este navegador. */
@@ -591,7 +658,7 @@ const CRM = (function () {
           '<button class="btn sec" id="btnEditar" type="button">Editar</button>' +
           (CRM.esJefe() ? '<button class="btn peligro" id="btnBorrar" type="button">Eliminar</button>' : '') +
         '</div></div>' +
-      ((auto || falta.length) && falta.length ? '<div class="aviso-regla rojo">' + (auto ? 'Cliente dado de alta automáticamente desde un correo. ' : '') +
+      ((auto || falta.length) && falta.length ? '<div class="aviso-regla rojo">' + (auto ? 'Cliente dado de alta automáticamente. ' : '') +
         'Faltan datos: ' + esc(falta.join(', ')) + '. Complétalos con «Editar».</div>' : '') +
       '<div class="det">' +
         '<div class="panel"><h2>Datos del cliente</h2><div class="datos">' +
@@ -604,9 +671,12 @@ const CRM = (function () {
           CRM.dato('Alta', CRM.fecha(c.alta, false)) +
           CRM.dato('Folios', String(c.historial.length)) +
         '</div></div>' +
-        '<div class="panel"><div class="panel-cab"><h2>Historial de casos</h2>' +
+        '<div><div class="panel"><div class="panel-cab"><h2>Historial de casos</h2>' +
           (c.historial.length > 5 ? '<button class="btn-link" id="verTodos" type="button">Ver todos (' + c.historial.length + ')</button>' : '') + '</div>' +
           '<div id="hist"></div></div>' +
+          (CRM.tnActivo() ? '<div class="panel"><div class="panel-cab"><h2>Pedidos en Tiendanube</h2><span id="tnGastado" class="ayuda" style="margin:0"></span></div>' +
+            '<div id="tnPed">' + CRM.cargando('Consultando la tienda…', true) + '</div></div>' : '') +
+        '</div>' +
       '</div>';
     const pintarHist = function (todos) {
       const h = todos ? c.historial : c.historial.slice(0, 5);
@@ -629,6 +699,20 @@ const CRM = (function () {
     $('#btnEditar', cont).onclick = function () { formulario(c); };
     $('#btnFolio', cont).onclick = function () { CRM.nuevoFolio(c); };
     if ($('#btnBorrar', cont)) $('#btnBorrar', cont).onclick = function () { borrar(c); };
+    if (CRM.tnActivo()) pedidosTn(c);
+  }
+
+  async function pedidosTn(c) {
+    const box = $('#tnPed');
+    if (!box) return;
+    if (!c.correo) { box.innerHTML = '<p class="ayuda">Agrega el correo del cliente para ver sus pedidos de la tienda.</p>'; return; }
+    try {
+      const r = await CRM.llamar('tnPedidosCliente', c.id);
+      if (!$('#tnPed') || CRM.st.params.id !== c.id) return;
+      $('#tnGastado').textContent = r.enTienda && r.gastado ? 'Total comprado: ' + CRM.dinero(r.gastado) : '';
+      box.innerHTML = r.pedidos.length ? '<div class="lista">' + r.pedidos.map(function (p) { return CRM.pedidoHtml(p, { compacto: true }); }).join('') + '</div>'
+        : '<p class="vacio">' + (r.enTienda ? 'Tiene cuenta en la tienda, pero sin pedidos.' : 'No encontré compras con ' + esc(c.correo) + '.') + '</p>';
+    } catch (e) { box.innerHTML = '<p class="error">' + esc(e.message) + '</p>'; }
   }
 
   function formulario(c, alGuardar) {
@@ -902,12 +986,56 @@ const CRM = (function () {
         caja.innerHTML = r.slice(0, 6).map(function (c, i) {
           return '<button type="button" class="cli-opcion" data-i="' + i + '"><strong>' + esc(c.nombre || '(sin nombre)') + '</strong><small>' +
             esc(c.id) + ' · ' + esc(c.telefono) + (c.correo ? ' · ' + esc(c.correo) : '') + '</small></button>';
-        }).join('') || '<p class="ayuda">Sin resultados. Si es nuevo, primero dalo de alta en Clientes.</p>';
+        }).join('') || (CRM.tnActivo() && q.length >= 3 ? '' : '<p class="ayuda">Sin resultados. Si es nuevo, primero dalo de alta en Clientes.</p>');
         CRM.$$('.cli-opcion', caja).forEach(function (b) { b.onclick = function () { elegir(r[Number(b.dataset.i)]); }; });
+        if (!CRM.tnActivo() || q.length < 3) return;
+        caja.insertAdjacentHTML('beforeend', '<div class="tn-res">' + CRM.cargando('Buscando en Tiendanube…', true) + '</div>');
+        let tn = [];
+        try { tn = await CRM.llamar('tnBuscarClientes', q); } catch (e) { tn = []; }
+        const box = $('.tn-res', caja);
+        if (!box || $('#cliQ', m).value !== q) return;
+        const ids = r.map(function (c) { return c.id; });
+        tn = tn.filter(function (x) { return !x.idCrm || ids.indexOf(x.idCrm) < 0; });
+        box.innerHTML = tn.length ? '<p class="ayuda" style="margin:6px 0 4px">De Tiendanube</p>' + tn.map(function (x, i) {
+          return '<button type="button" class="cli-opcion" data-tn="' + i + '"><strong>' + esc(x.nombre || x.correo) + '</strong><small>' +
+            (x.idCrm ? 'Ya en el CRM · ' + esc(x.idCrm) : 'Se importa al elegirlo · ' + esc(x.correo || x.telefono)) + '</small></button>';
+        }).join('') : (r.length ? '' : '<p class="ayuda">Sin resultados en el CRM ni en Tiendanube. Si es nuevo, dalo de alta en Clientes.</p>');
+        CRM.$$('[data-tn]', box).forEach(function (b) {
+          b.onclick = async function () {
+            const x = tn[Number(b.dataset.tn)];
+            b.disabled = true;
+            try {
+              const id = x.idCrm || (await CRM.llamar('tnImportarCliente', x.tnId)).id;
+              elegir({ id: id, nombre: x.nombre, telefono: x.telefono, correo: x.correo });
+            } catch (e) { CRM.aviso(e.message, 'mal'); b.disabled = false; }
+          };
+        });
       } catch (e) { caja.innerHTML = '<p class="error">' + esc(e.message) + '</p>'; }
     };
     $('#cliQ', m).oninput = function (e) { clearTimeout(t); t = setTimeout(function () { buscar(e.target.value); }, 250); };
     if (inicial && inicial.id) elegir(inicial);
+  }
+
+  /** Revisa en Tiendanube el número de pedido escrito (no bloquea el guardado). */
+  function vigilarPedido(m, f) {
+    const info = $('#pedInfo', m);
+    if (!CRM.tnActivo() || !info) return;
+    let t;
+    const revisar = async function () {
+      const n = f.pedido.value.replace(/^#/, '').trim();
+      if (!n) { info.textContent = ''; return; }
+      if (!/^\d+$/.test(n)) { info.innerHTML = '<span class="falta">El número de pedido debe tener solo dígitos.</span>'; return; }
+      info.textContent = 'Buscando el pedido #' + n + ' en Tiendanube…';
+      try {
+        const p = await CRM.llamar('tnPedido', n, f.idCliente.value || '');
+        if (f.pedido.value.replace(/^#/, '').trim() !== n) return;
+        if (!p.existe) { info.innerHTML = '<span class="falta">El pedido #' + esc(n) + ' no existe en Tiendanube.</span>'; return; }
+        info.innerHTML = '✓ Pedido #' + esc(p.numero) + ' · ' + esc(p.nombre) + ' · ' + esc(CRM.dinero(p.total, p.moneda)) + ' · ' + esc(p.pago) + ' · ' + esc(p.envio) +
+          (p.coincide === false ? ' <span class="falta">· El correo/teléfono del pedido no coincide con el cliente elegido.</span>' : '');
+      } catch (e) { info.innerHTML = '<span class="falta">' + esc(e.message) + '</span>'; }
+    };
+    f.pedido.addEventListener('input', function () { clearTimeout(t); t = setTimeout(revisar, 600); });
+    if (f.pedido.value) revisar();
   }
 
   /* ───────── nuevo folio ───────── */
@@ -925,7 +1053,7 @@ const CRM = (function () {
           '<label>Canal de atención<select name="canal">' + CRM.opciones(cfg.canales, 'WhatsApp') + '</select></label>' +
           '<label>Medio de contacto preferido<select name="medio">' + CRM.opciones(cfg.canales, 'WhatsApp') + '</select></label>' +
           '<label>Prioridad <small id="priAuto" style="color:var(--ayuda);font-weight:500">(automática)</small><select name="prioridad">' + CRM.opciones(cfg.prioridades, 'Normal') + '</select></label>' +
-        '</div>' +
+        '</div><p class="auto-info" id="pedInfo"></p>' +
         '<label>Descripción del caso *<textarea name="descripcion" rows="4" maxlength="5000" placeholder="¿Qué pasó y qué pide el cliente?"></textarea></label>' +
         '<p id="nErr" class="error"></p>' +
         '<div class="acciones"><button class="btn" type="submit">Guardar y generar folio</button><button class="btn sec" type="button" id="nCancelar">Cancelar</button></div>' +
@@ -940,6 +1068,7 @@ const CRM = (function () {
       if (tip && !priTocada && cfg.prioridades.indexOf(tip.prioridad) >= 0) f.prioridad.value = tip.prioridad;
     });
     montarCliente(m, f, cliente);
+    vigilarPedido(m, f);
     const inicial = CRM.firmaForm(f);
     const cancelar = function () { CRM.descartar(f, inicial); };
     $('#nCancelar', m).onclick = cancelar;
@@ -1027,6 +1156,8 @@ const CRM = (function () {
           '</div></div>' +
         '</div>' +
         '<div>' +
+          (CRM.tnActivo() ? '<div class="panel"><div class="panel-cab"><h2>' + (t.pedido ? 'Pedido de Tiendanube' : 'Pedidos del cliente en Tiendanube') +
+            '</h2></div><div id="tnFolio">' + CRM.cargando('Consultando la tienda…', true) + '</div></div>' : '') +
           '<div class="panel"><h2>Descripción del caso</h2>' + (t.descripcion ? '<div class="desc">' + esc(t.descripcion) + '</div>' : '<p class="ayuda">Sin descripción. Agrégala con «Modificar».</p>') + '</div>' +
           '<div class="panel"><div class="panel-cab"><h2>Contactar al cliente</h2></div><div class="acciones" style="margin-top:0">' +
             '<button class="btn" id="btnResp" type="button">Respuesta rápida</button>' +
@@ -1084,6 +1215,37 @@ const CRM = (function () {
       try { await CRM.llamar('ticketNota', t.folio, d.tipo, d.texto); CRM.recargar(); }
       catch (e) { CRM.aviso(e.message, 'mal'); btn.disabled = false; }
     };
+    if (CRM.tnActivo()) pedidoFolio(t);
+  }
+
+  async function pedidoFolio(t) {
+    const box = $('#tnFolio');
+    if (!box) return;
+    const vigente = function () { return $('#tnFolio') && CRM.st.params.folio === t.folio; };
+    try {
+      if (t.pedido) {
+        const p = await CRM.llamar('tnPedido', t.pedido, t.idCliente);
+        if (!vigente()) return;
+        box.innerHTML = !p.existe ? '<p class="falta">El pedido #' + esc(t.pedido) + ' no existe en Tiendanube. Corrígelo con «Modificar».</p>'
+          : (p.coincide === false ? '<div class="aviso-regla rojo">El correo o teléfono del pedido no coincide con el cliente de este folio. Revisa que sea el pedido correcto.</div>' : '') +
+            CRM.pedidoHtml(p);
+        return;
+      }
+      if (!t.correo) { box.innerHTML = '<p class="ayuda">Este folio no tiene pedido. Agrega el correo del cliente para ver sus compras, o escribe el número con «Modificar».</p>'; return; }
+      const r = await CRM.llamar('tnPedidosCliente', t.idCliente);
+      if (!vigente()) return;
+      box.innerHTML = r.pedidos.length
+        ? '<p class="ayuda" style="margin-top:0">Este folio no tiene pedido asignado. Compras recientes del cliente:</p><div class="lista">' +
+          r.pedidos.slice(0, 5).map(function (p) { return CRM.pedidoHtml(p, { compacto: true, asignar: true }); }).join('') + '</div>'
+        : '<p class="ayuda" style="margin:0">Sin compras de ' + esc(t.correo) + ' en la tienda.</p>';
+      CRM.$$('[data-asignar]', box).forEach(function (b) {
+        b.onclick = async function () {
+          if (!(await CRM.confirmar('¿Asignar el pedido #' + b.dataset.asignar + ' al folio ' + t.folio + '?', 'Asignar', { peligro: false, no: 'Cancelar' }))) return;
+          try { await CRM.llamar('ticketActualizar', t.folio, { pedido: b.dataset.asignar }); CRM.aviso('Pedido asignado.'); CRM.recargar(); }
+          catch (e) { CRM.aviso(e.message, 'mal'); }
+        };
+      });
+    } catch (e) { box.innerHTML = '<p class="error">' + esc(e.message) + '</p>'; }
   }
 
   function lineaTiempo(notas) {
@@ -1123,7 +1285,7 @@ const CRM = (function () {
           '<label>Medio preferido<select name="medio">' + CRM.opciones(cfg.canales, t.medio) + '</select></label>' +
           '<label>Prioridad<select name="prioridad">' + CRM.opciones(cfg.prioridades, t.prioridad) + '</select></label>' +
           '<label>Próximo contacto<input name="proximo" type="date" value="' + esc(prox) + '"></label>' +
-        '</div>' +
+        '</div><p class="auto-info" id="pedInfo"></p>' +
         '<label>Descripción del caso<textarea name="descripcion" rows="4" maxlength="5000">' + esc(t.descripcion) + '</textarea></label>' +
         '<p id="mErr" class="error"></p>' +
         '<div class="acciones"><button class="btn" type="submit">Guardar cambios</button><button class="btn sec" type="button" id="mCancelar">Cancelar</button></div>' +
@@ -1136,6 +1298,7 @@ const CRM = (function () {
       if (tip && !priTocada && cfg.prioridades.indexOf(tip.prioridad) >= 0) f.prioridad.value = tip.prioridad;
     });
     montarCliente(m, f, { id: t.idCliente, nombre: (t.ficha && t.ficha.nombre) || t.cliente, telefono: t.telefono, correo: t.correo });
+    vigilarPedido(m, f);
     const inicial = CRM.firmaForm(f);
     const cancelar = function () { CRM.descartar(f, inicial); };
     $('#mCancelar', m).onclick = cancelar;
@@ -1342,6 +1505,69 @@ const CRM = (function () {
       catch (e) { $('#pErr', m).textContent = e.message; }
     };
   }
+})();
+
+/* ═════════════ Ajustes (solo administrador): conexión con Tiendanube ═════════════ */
+(function () {
+  const $ = CRM.$, esc = CRM.esc;
+
+  CRM.registrarVista('ajustes', {
+    titulo: 'Ajustes', icono: 'a', orden: 90, soloAdmin: true,
+    render: async function (cont, p, vigente) {
+      const e = await CRM.llamar('tnEstado');
+      if (!vigente()) return;
+      CRM.st.cfg.tienda = e.conectado;
+      cont.innerHTML =
+        '<div class="encabezado"><div><p class="eyebrow">Administración</p><h1>Ajustes</h1></div></div>' +
+        '<div class="det">' +
+          '<div class="panel"><div class="panel-cab"><h2>Tiendanube</h2>' +
+            (e.conectado ? '<span class="chip ok">Conectado</span>' : '<span class="chip mal">Sin conectar</span>') + '</div>' +
+            (e.conectado
+              ? '<div class="datos">' + CRM.dato('Tienda', e.tienda) + CRM.dato('Número', e.numero) + CRM.dato('Conectada desde', CRM.fecha(e.desde)) +
+                CRM.dato('Acceso', 'Solo lectura (pedidos y clientes)') + '</div>'
+              : '<p class="ayuda">Conecta la tienda para ver pedidos dentro de los folios, las compras de cada cliente e importar clientes.</p>') +
+            '<form id="fTn" autocomplete="off" style="margin-top:16px">' +
+              '<label>Número de tienda<input name="tienda" inputmode="numeric" maxlength="15" value="' + esc(e.numero) + '" placeholder="Ej. 8238234"></label>' +
+              '<label>Clave de acceso (access token)<input name="clave" type="password" autocomplete="new-password" spellcheck="false" placeholder="' +
+                (e.conectado ? 'Déjala vacía para conservar la actual' : 'Pega aquí la clave de la aplicación a medida') + '"></label>' +
+              '<p id="tnErr" class="error"></p>' +
+              '<div class="acciones"><button class="btn" type="submit">' + (e.conectado ? 'Cambiar clave y probar' : 'Conectar y probar') + '</button>' +
+              (e.conectado ? '<button class="btn peligro" type="button" id="tnQuitar">Desconectar</button>' : '') + '</div>' +
+            '</form>' +
+          '</div>' +
+          '<div class="panel"><h2>Cómo obtener la clave</h2><ol class="pasos-txt">' +
+            '<li>Entra al administrador de Tiendanube → <b>Aplicaciones</b> → <b>Aplicaciones a medida</b>.</li>' +
+            '<li>Crea una app llamada <b>SEGES CRM</b> con permisos de <b>solo lectura</b> en Pedidos y Clientes.</li>' +
+            '<li>Instálala y copia el <b>access token</b> y el <b>número de tienda</b>.</li>' +
+            '<li>Pégalos aquí y toca «Conectar y probar».</li></ol>' +
+            '<h2 style="margin-top:18px">Avisos automáticos</h2>' +
+            '<p class="ayuda">Cada 10 minutos el CRM revisa la tienda y abre un folio cuando un pedido se <b>cancela</b> o lleva <b>' + esc(e.diasSinEnvio) +
+              ' días pagado sin enviarse</b> (los días se cambian en la hoja Config, TN_DIAS_SIN_ENVIO). Se asigna a quien tenga menos folios abiertos y nunca se duplica.</p>' +
+          '</div>' +
+        '</div>';
+      const f = $('#fTn', cont);
+      f.onsubmit = async function (ev) {
+        ev.preventDefault();
+        const err = $('#tnErr', cont), btn = $('button[type=submit]', f);
+        err.textContent = '';
+        const d = { tienda: f.tienda.value.trim(), clave: f.clave.value.trim() };
+        if (!d.clave) { err.textContent = 'Pega la clave de acceso.'; return; }
+        btn.disabled = true; btn.textContent = 'Probando conexión…';
+        try {
+          const r = await CRM.llamar('tnConfigGuardar', d);
+          f.clave.value = '';
+          CRM.st.cfg.tienda = true;
+          CRM.aviso('Conectado a ' + r.tienda + '.');
+          CRM.recargar();
+        } catch (e2) { err.textContent = e2.message; btn.disabled = false; btn.textContent = 'Conectar y probar'; }
+      };
+      if ($('#tnQuitar', cont)) $('#tnQuitar', cont).onclick = async function () {
+        if (!(await CRM.confirmarBorrado('la conexión con Tiendanube'))) return;
+        try { await CRM.llamar('tnDesconectar'); CRM.st.cfg.tienda = false; CRM.aviso('Tiendanube desconectado.'); CRM.recargar(); }
+        catch (e3) { CRM.aviso(e3.message, 'mal'); }
+      };
+    }
+  });
 })();
 
 CRM.arrancar();
