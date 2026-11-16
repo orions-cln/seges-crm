@@ -315,3 +315,4 @@ label.check input { width: auto; margin: 0; accent-color: var(--carbon); }
 @media (prefers-reduced-motion: reduce) { .estrellas i { animation: none; } .prod .foto { transition: none; } }
 #nav .t-corto { display: none; }
 @media (max-width: 860px) { #nav .t-largo { display: none; } #nav .t-corto { display: inline; } }
+@media (max-width: 420px) { .logo span { display: none; } }
