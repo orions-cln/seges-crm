@@ -1,0 +1,81 @@
+/* SEGES – Catálogo v1 · Complementa ../css/app.css (Diseño 3.0: azul noche + ámbar). */
+.cab-der .btn.chico { text-decoration: none; }
+.lateral .pie a { color: var(--ayuda); }
+
+/* Tarjetas de producto */
+.prod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+.prod { background: var(--sup); border: 1px solid var(--borde); border-radius: var(--r); overflow: hidden; cursor: pointer;
+        display: flex; flex-direction: column; text-align: left; color: inherit; padding: 0; transition: border-color .15s, transform .15s; }
+.prod:hover { border-color: var(--ambar); transform: translateY(-1px); }
+.prod .foto { aspect-ratio: 1 / 1; background: var(--sup-2); display: grid; place-items: center; color: var(--ayuda); font-size: 12px; position: relative; }
+.prod .foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.prod .foto .chips { position: absolute; top: 8px; left: 8px; right: 8px; }
+.prod .cuerpo { padding: 10px 12px 12px; display: grid; gap: 4px; }
+.prod .sku { font: 12px var(--mono); color: var(--ayuda); }
+.prod strong { font-size: 14px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.6em; }
+.prod .precios { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.prod .precios b { font-size: 16px; }
+.prod .meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--ayuda); }
+.chip.seges { border-color: var(--ambar); color: var(--ambar-2); background: rgba(232,163,61,.12); }
+.chip.drop { border-color: var(--azul); color: var(--azul); background: var(--azul-f); }
+.chip.solido { background: rgba(11,18,38,.85); }
+.gan-ok { color: var(--verde); }
+.gan-mal { color: var(--rojo); }
+.gan-cero { color: var(--ambar-2); }
+
+/* Ficha */
+.galeria { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+.galeria .ft { position: relative; aspect-ratio: 1 / 1; border-radius: 10px; overflow: hidden; background: var(--sup-2); border: 1px solid var(--borde); }
+.galeria .ft img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.galeria .ft.principal { border-color: var(--ambar); }
+.galeria .ft .ctl { position: absolute; inset: auto 4px 4px 4px; display: flex; gap: 4px; justify-content: space-between; }
+.galeria .ft .ctl button { background: rgba(11,18,38,.88); border: 1px solid var(--borde-2); color: var(--texto); border-radius: 6px; padding: 1px 7px; cursor: pointer; font-size: 12px; }
+.galeria .ft .ctl button:hover { border-color: var(--ambar); }
+.galeria .agregar { aspect-ratio: 1 / 1; border: 1px dashed var(--borde-2); border-radius: 10px; display: grid; place-items: center; text-align: center;
+                    color: var(--suave); cursor: pointer; font-size: 13px; padding: 8px; background: none; }
+.galeria .agregar:hover { border-color: var(--ambar); color: var(--texto); }
+.foto-grande { width: 100%; max-height: 360px; object-fit: contain; border-radius: 10px; background: var(--sup-2); }
+.cifras { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.cifra { background: var(--sup-2); border: 1px solid var(--borde); border-radius: 10px; padding: 10px 12px; }
+.cifra small { display: block; color: var(--ayuda); font-size: 12px; }
+.cifra b { font-size: 18px; }
+.estado-tn { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.punto-tn { width: 10px; height: 10px; border-radius: 50%; background: var(--ayuda); display: inline-block; }
+.punto-tn.ok { background: var(--verde); } .punto-tn.pend { background: var(--ambar); } .punto-tn.mal { background: var(--rojo); }
+
+/* Formulario */
+.seccion-form { border-top: 1px solid var(--borde); padding-top: 14px; margin-top: 14px; }
+.seccion-form h3 { margin: 0 0 10px; font-size: 14px; color: var(--ambar-2); letter-spacing: .02em; }
+.vista-gan { display: flex; gap: 14px; flex-wrap: wrap; font-size: 14px; margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--sup-2); }
+.vista-gan span b { margin-left: 4px; }
+.rejilla.cuatro { grid-template-columns: repeat(4, 1fr); }
+
+/* Gráficas */
+.barras-h .barra-h { grid-template-columns: minmax(80px, 140px) 1fr auto; }
+.barras-h .barra-h b { min-width: 34px; text-align: right; white-space: nowrap; }
+.apiladas { display: grid; gap: 8px; }
+.apilada { display: grid; grid-template-columns: minmax(90px, 130px) 1fr 40px; gap: 10px; align-items: center; font-size: 13px; }
+.apilada span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--suave); }
+.apilada .pista { height: 14px; border-radius: 7px; background: var(--sup-3); overflow: hidden; display: flex; }
+.apilada .pista i { display: block; height: 100%; }
+.apilada b { text-align: right; }
+.mini-lista { list-style: none; margin: 0; padding: 0; }
+.mini-lista li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--borde); font-size: 14px; cursor: pointer; }
+.mini-lista li:last-child { border-bottom: 0; }
+.mini-lista li:hover span:first-child { color: var(--ambar-2); }
+.mini-lista small { color: var(--ayuda); }
+.barra-progreso { height: 8px; border-radius: 4px; background: var(--sup-3); overflow: hidden; margin: 10px 0; }
+.barra-progreso i { display: block; height: 100%; background: var(--ambar); transition: width .3s; }
+.vista-toggle { display: inline-flex; border: 1px solid var(--borde-2); border-radius: 8px; overflow: hidden; }
+.vista-toggle button { background: none; border: 0; color: var(--suave); padding: 6px 10px; cursor: pointer; font-size: 13px; }
+.vista-toggle button.activo { background: var(--sup-3); color: var(--texto); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+.miniatura { width: 38px; height: 38px; border-radius: 6px; object-fit: cover; background: var(--sup-2); display: block; }
+
+@media (max-width: 760px) {
+  .prod-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .prod .cuerpo { padding: 8px 10px 10px; }
+  .prod strong { font-size: 13px; }
+  .rejilla.cuatro { grid-template-columns: 1fr 1fr; }
+  .cab-der #irCrm { display: none; }
+}
