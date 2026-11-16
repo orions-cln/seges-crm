@@ -122,19 +122,32 @@ const CRM = (function () {
 
   /* ───────── navegación ───────── */
   function registrarVista(id, def) { st.vistas.push(Object.assign({ id: id, orden: 50 }, def)); }
-  function hayVista(id) { return st.vistas.some(function (v) { return v.id === id; }); }
+  function hayVista(id) { return visibles().some(function (v) { return v.id === id; }); }
   function esAdmin() { return !!(st.usuario && st.usuario.rol === 'admin'); }
   function esJefe() { return !!(st.usuario && (st.usuario.rol === 'admin' || st.usuario.rol === 'supervisor')); }
   function visibles() {
     return st.vistas.filter(function (v) { return (!v.soloJefe || esJefe()) && (!v.soloAdmin || esAdmin()); })
                     .sort(function (a, b) { return a.orden - b.orden; });
   }
+  /** Íconos de la barra lateral (trazo, heredan el color del texto). */
+  const ICONOS = {
+    inicio: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',
+    clientes: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M18.5 14.3c1.9.8 3 2.8 3 5.7"/>',
+    folios: '<rect x="5" y="3.5" width="14" height="18" rx="2"/><path d="M9 3.5h6v3H9z"/><path d="M8.5 11h7M8.5 15h5"/>',
+    respuestas: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/>',
+    ajustes: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+    otro: '<circle cx="12" cy="12" r="8"/>'
+  };
+  function icono(id) {
+    return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      (ICONOS[id] || ICONOS.otro) + '</svg>';
+  }
   function pintarNav() {
     const nav = $('#nav');
     nav.innerHTML = visibles().map(function (v) {
       return '<button type="button" data-vista="' + esc(v.id) + '" title="' + esc(v.titulo) + '"><span class="ico">' + esc(v.icono || v.titulo[0].toLowerCase()) +
         '</span><span>' + esc(v.titulo) + '</span></button>';
-    }).join('') + '<div class="pie">SEGES CRM · v7</div>';
+    }).join('') + '<div class="pie">SEGES CRM · v8</div>';
     $$('button', nav).forEach(function (b) { b.onclick = function () { ir(b.dataset.vista); }; });
   }
 
@@ -489,7 +502,7 @@ const CRM = (function () {
   const $ = CRM.$, esc = CRM.esc;
 
   CRM.registrarVista('inicio', {
-    titulo: 'Inicio', icono: 'i', orden: 10,
+    titulo: 'Inicio', orden: 10,
     render: async function (cont, p, vigente) {
       const t = await CRM.llamar('tablero');
       if (!vigente()) return;
@@ -602,7 +615,7 @@ const CRM = (function () {
   let temporizador, ultimaQ = '';
 
   CRM.registrarVista('clientes', {
-    titulo: 'Clientes', icono: 'c', orden: 20,
+    titulo: 'Clientes', orden: 20,
     render: async function (cont, p, vigente) {
       if (p.id) return ficha(cont, p.id, vigente);
       cont.innerHTML =
@@ -811,7 +824,7 @@ const CRM = (function () {
   };
 
   CRM.registrarVista('folios', {
-    titulo: 'Folios', icono: 'f', orden: 30,
+    titulo: 'Folios', orden: 30,
     render: async function (cont, p, vigente) {
       if (p.folio) return detalle(cont, p.folio, vigente);
       const cfg = CRM.st.cfg;
@@ -1455,7 +1468,7 @@ const CRM = (function () {
   /* ───────── Respuestas (plantillas) ───────── */
 
   CRM.registrarVista('respuestas', {
-    titulo: 'Respuestas', icono: 'r', orden: 60,
+    titulo: 'Respuestas', orden: 60,
     render: async function (cont, p, vigente) {
       const lista = await CRM.llamar('respuestasListar', true);
       if (!vigente()) return;
@@ -1512,7 +1525,7 @@ const CRM = (function () {
   const $ = CRM.$, esc = CRM.esc;
 
   CRM.registrarVista('ajustes', {
-    titulo: 'Ajustes', icono: 'a', orden: 90, soloAdmin: true,
+    titulo: 'Ajustes', orden: 90, soloAdmin: true,
     render: async function (cont, p, vigente) {
       const e = await CRM.llamar('tnEstado');
       if (!vigente()) return;
